@@ -197,7 +197,7 @@ rustup target add wasm32v1-none`}</code>
           <p>Start by forking the repository and cloning your fork locally.</p>
           <div className="code-block">
             <pre>
-              <code>{`git clone https://github.com/<your-handle>/Stellar-Game-Studio
+              <code>{`git clone https://github.com/jamesbachini/Stellar-Game-Studio
 cd Stellar-Game-Studio
 bun install`}</code>
             </pre>

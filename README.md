@@ -1,19 +1,20 @@
 # Stellar Game Studio
 
-Build production-ready, two-player Soroban games fast, with a testnet sandbox and a wallet flow you can ship.
+Development Tools For Web3 Game Builders On Stellar.
 
-**Start here:** [Stellar Game Studio Docs](https://jamesbachini.github.io/Stellar-Game-Studio/)
+Ecosystem ready game templates and examples ready to scaffold into into your development workflow
 
-Repo: [github.com/jamesbachini/Stellar-Game-Studio](https://github.com/jamesbachini/Stellar-Game-Studio)
+**Start here:** [Stellar Game Studio](https://jamesbachini.github.io/Stellar-Game-Studio/)
+
 
 ## Why this exists
 
-Stellar Game Studio is a complete workflow for shipping on-chain games without spending weeks on boilerplate. It pairs Soroban contract patterns with a ready-made frontend stack and deployment scripts, so you can focus on game design and gameplay mechanics.
+Stellar Game Studio is a toolkit for shipping web3 games quickly and efficiently. It pairs Stellar smart contract patterns with a ready-made frontend stack and deployment scripts, so you can focus on game design and gameplay mechanics.
 
 ## What you get
 
 - Battle-tested Soroban patterns for two-player games
-- A Game Hub contract that standardizes lifecycle and scoring
+- A ecosystem ready mock game hub contract that standardizes lifecycle and scoring
 - Deterministic randomness guidance and reference implementations
 - One-command scaffolding for contracts + standalone frontend
 - Testnet setup that generates wallets, deploys contracts, and wires bindings
@@ -23,7 +24,7 @@ Stellar Game Studio is a complete workflow for shipping on-chain games without s
 
 ```bash
 # Fork the repo, then:
-git clone https://github.com/<your-handle>/Stellar-Game-Studio
+git clone https://github.com/jamesbachini/Stellar-Game-Studio
 cd Stellar-Game-Studio
 bun install
 
@@ -70,7 +71,7 @@ bun run dev:game my-game              # Run a standalone frontend with dev walle
 bun run publish my-game --build        # Export + build production frontend
 ```
 
-## Contract Rules (Non-Negotiable)
+## Ecosystem Constraints
 
 - Every game must call `start_game` and `end_game` on the Game Hub contract.
 - Game Hub enforces exactly two players per session.
