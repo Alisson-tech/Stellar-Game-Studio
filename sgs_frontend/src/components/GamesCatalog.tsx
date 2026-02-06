@@ -158,7 +158,7 @@ export function GamesCatalog({ onBack }: GamesCatalogProps) {
             <div className="zk-card-text">
               <div className="zk-card-title">TypeZero</div>
               <p className="zk-card-description">
-                A typing game built with RISC Zero and Stellar.
+                A typing game built with RISC Zero and Stellar. Requires local setup.
               </p>
               <div className="zk-card-cta">Open on GitHub</div>
             </div>
