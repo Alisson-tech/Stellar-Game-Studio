@@ -289,3 +289,33 @@ Para ver logs de debug (`std::println!` não funciona, use `env.logger().log(...
 cargo test -- --nocapture
 ```
 
+## Debugando o Contrato
+
+Sim, é possível debugar contratos Soroban/Rust, principalmente durante a fase de **testes unitários** (off-chain), onde temos mais flexibilidade.
+
+### 1. Logs (`std::println!` vs `env.logger()`)
+
+*   **`std::println!`**: Funciona apenas nos testes unitários locais (`cargo test`). Útil para debug rápido, mas **não** funciona quando o contrato é executado na blockchain real.
+    *   *Uso*: `println!("Valor: {}", x);`
+    *   *Execução*: `cargo test -- --nocapture` (necessário para ver a saída).
+
+*   **`env.logs().add(...)`**: A forma "oficial" do Soroban. Esses logs são emitidos como eventos de diagnóstico.
+    *   *Uso*: `env.logs().add("Mensagem", &valor);`
+    *   *Vantagem*: Visível tanto em testes quanto na simulação via CLI (`soroban contract invoke`).
+
+### 2. Debugger (VS Code / LLDB)
+
+Como os testes unitários (`contracts/pass/src/test.rs`) rodam na sua máquina local (não na VM do Soroban, mas simulam ela), você pode usar debuggers padrão de Rust!
+
+1.  No VS Code, instale a extensão **CodeLLDB**.
+2.  Coloque um **Breakpoint** (bolinha vermelha) na linha do seu contrato ou teste.
+3.  Vá na aba "Run and Debug" e crie uma configuração para rodar os testes.
+4.  Ao iniciar, a execução vai parar no seu breakpoint e você pode inspecionar variáveis (como `env`, `storage`, etc).
+
+### 3. Debug na Simulação (CLI)
+
+Ao usar `soroban contract invoke`, você está rodando o contrato numa VM local simulada. Se ocorrer um erro (ex: `panic!`), o CLI geralmente mostra o erro e o Backtrace se configurado.
+
+*   Dica: Use `RUST_BACKTRACE=1` antes do comando para ver a pilha de chamadas se algo falhar.
+
+
