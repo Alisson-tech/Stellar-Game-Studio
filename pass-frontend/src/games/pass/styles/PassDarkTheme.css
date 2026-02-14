@@ -1,0 +1,400 @@
+/* PASS Game - Dark Mode Theme */
+/* Minimalist blockchain/cryptography aesthetic */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+.pass-game-dark {
+    /* Color Palette - Deep charcoal and midnight blue */
+    --pass-bg-primary: #0B0E14;
+    --pass-bg-secondary: #151922;
+    --pass-bg-tertiary: #1A1F2E;
+
+    /* Neon accents */
+    --pass-neon-blue: #00D9FF;
+    --pass-neon-blue-glow: rgba(0, 217, 255, 0.4);
+    --pass-neon-cyan: #00FFF5;
+
+    /* Metallic gold for win state */
+    --pass-gold: #FFD700;
+    --pass-gold-light: #FFED4E;
+    --pass-gold-dark: #B8860B;
+
+    /* Text colors */
+    --pass-text-primary: #FFFFFF;
+    --pass-text-secondary: #A0AEC0;
+    --pass-text-muted: #718096;
+
+    /* Glassmorphism */
+    --pass-glass-bg: rgba(255, 255, 255, 0.05);
+    --pass-glass-border: rgba(255, 255, 255, 0.1);
+    --pass-glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+
+    /* Shadows and glows */
+    --pass-shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.5);
+    --pass-glow-neon: 0 0 20px var(--pass-neon-blue-glow);
+
+    /* Typography */
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'San Francisco', sans-serif;
+    background: var(--pass-bg-primary);
+    color: var(--pass-text-primary);
+    min-height: 100vh;
+    position: relative;
+    overflow-x: hidden;
+}
+
+/* Background pattern - subtle grid */
+.pass-game-dark::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-image:
+        linear-gradient(rgba(0, 217, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 217, 255, 0.03) 1px, transparent 1px);
+    background-size: 50px 50px;
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* Container */
+.pass-container {
+    position: relative;
+    z-index: 1;
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 3rem 1.5rem;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Header */
+.pass-header {
+    text-align: center;
+    margin-bottom: 3rem;
+    animation: fadeInDown 0.6s ease-out;
+}
+
+.pass-title {
+    font-size: 3.5rem;
+    font-weight: 300;
+    letter-spacing: 0.5em;
+    margin: 0;
+    background: linear-gradient(135deg, var(--pass-neon-blue), var(--pass-neon-cyan));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-transform: uppercase;
+    filter: drop-shadow(0 0 10px var(--pass-neon-blue-glow));
+}
+
+.pass-subtitle {
+    font-size: 0.875rem;
+    font-weight: 400;
+    letter-spacing: 0.2em;
+    color: var(--pass-text-secondary);
+    margin-top: 0.5rem;
+    text-transform: uppercase;
+}
+
+/* Input Field - Elegant with neon glow */
+.pass-input-container {
+    position: relative;
+    width: 100%;
+    margin-bottom: 2rem;
+    animation: fadeInUp 0.6s ease-out 0.2s backwards;
+}
+
+.pass-input-label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--pass-text-secondary);
+    margin-bottom: 0.75rem;
+    text-align: center;
+}
+
+.pass-input {
+    width: 100%;
+    padding: 1.25rem 1.5rem;
+    background: var(--pass-bg-secondary);
+    border: 1px solid transparent;
+    border-radius: 12px;
+    color: var(--pass-text-primary);
+    font-size: 1.125rem;
+    font-weight: 400;
+    text-align: center;
+    letter-spacing: 0.05em;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    outline: none;
+    box-shadow:
+        inset 0 2px 8px rgba(0, 0, 0, 0.3),
+        0 0 0 1px rgba(0, 217, 255, 0.1);
+}
+
+.pass-input:focus {
+    border-color: var(--pass-neon-blue);
+    box-shadow:
+        inset 0 2px 8px rgba(0, 0, 0, 0.3),
+        0 0 0 2px var(--pass-neon-blue),
+        var(--pass-glow-neon);
+    transform: translateY(-2px);
+}
+
+.pass-input::placeholder {
+    color: var(--pass-text-muted);
+    font-weight: 300;
+}
+
+/* Glassmorphism Button */
+.pass-button {
+    position: relative;
+    width: 100%;
+    padding: 1.25rem 2rem;
+    background: var(--pass-glass-bg);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid var(--pass-glass-border);
+    border-radius: 12px;
+    color: var(--pass-text-primary);
+    font-size: 0.875rem;
+    font-weight: 600;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
+    animation: fadeInUp 0.6s ease-out 0.4s backwards;
+}
+
+.pass-button::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(0, 217, 255, 0.2), transparent);
+    transition: left 0.5s ease;
+}
+
+.pass-button:hover {
+    border-color: var(--pass-neon-blue);
+    box-shadow:
+        0 0 20px var(--pass-neon-blue-glow),
+        inset 0 0 20px rgba(0, 217, 255, 0.1);
+    transform: translateY(-2px);
+}
+
+.pass-button:hover::before {
+    left: 100%;
+}
+
+.pass-button:active {
+    transform: translateY(0);
+}
+
+.pass-button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.pass-button:disabled:hover {
+    border-color: var(--pass-glass-border);
+    box-shadow: none;
+}
+
+/* Card - Glassmorphism */
+.pass-card {
+    width: 100%;
+    background: var(--pass-glass-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--pass-glass-border);
+    border-radius: 20px;
+    padding: 2.5rem;
+    box-shadow: var(--pass-glass-shadow);
+    animation: fadeInUp 0.6s ease-out;
+}
+
+/* Win State Overlay */
+.pass-win-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(11, 14, 20, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    animation: fadeIn 0.4s ease-out;
+}
+
+.pass-win-content {
+    text-align: center;
+    padding: 3rem;
+    animation: scaleIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.pass-win-title {
+    font-size: 4rem;
+    font-weight: 700;
+    letter-spacing: 0.3em;
+    margin: 0;
+    background: linear-gradient(135deg, var(--pass-gold-light), var(--pass-gold), var(--pass-gold-dark));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-transform: uppercase;
+    filter: drop-shadow(0 0 30px rgba(255, 215, 0, 0.6));
+    animation: shimmer 2s ease-in-out infinite;
+}
+
+.pass-win-subtitle {
+    font-size: 1rem;
+    font-weight: 400;
+    letter-spacing: 0.2em;
+    color: var(--pass-text-secondary);
+    margin-top: 1rem;
+    text-transform: uppercase;
+}
+
+/* Status Indicator */
+.pass-status {
+    text-align: center;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+    border-radius: 10px;
+    background: var(--pass-bg-tertiary);
+    border: 1px solid rgba(0, 217, 255, 0.2);
+    animation: fadeInUp 0.6s ease-out 0.1s backwards;
+}
+
+.pass-status-text {
+    font-size: 0.875rem;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    color: var(--pass-neon-cyan);
+}
+
+/* Loading State */
+.pass-loading {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--pass-glass-border);
+    border-top-color: var(--pass-neon-blue);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+/* Animations */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes fadeInDown {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes scaleIn {
+    from {
+        opacity: 0;
+        transform: scale(0.8);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes shimmer {
+
+    0%,
+    100% {
+        filter: drop-shadow(0 0 30px rgba(255, 215, 0, 0.6));
+    }
+
+    50% {
+        filter: drop-shadow(0 0 50px rgba(255, 215, 0, 0.9));
+    }
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Responsive Design */
+@media (max-width: 640px) {
+    .pass-title {
+        font-size: 2.5rem;
+        letter-spacing: 0.3em;
+    }
+
+    .pass-win-title {
+        font-size: 2.5rem;
+        letter-spacing: 0.2em;
+    }
+
+    .pass-card {
+        padding: 2rem;
+    }
+
+    .pass-container {
+        padding: 2rem 1rem;
+    }
+}
+
+/* Micro-interactions */
+.pass-input,
+.pass-button,
+.pass-card {
+    will-change: transform;
+}
+
+/* Focus visible for accessibility */
+.pass-button:focus-visible,
+.pass-input:focus-visible {
+    outline: 2px solid var(--pass-neon-blue);
+    outline-offset: 2px;
+}
