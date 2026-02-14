@@ -69,7 +69,7 @@ export function PassGame({
   const [xdrParsing, setXdrParsing] = useState(false);
   const [xdrParseError, setXdrParseError] = useState<string | null>(null);
   const [xdrParseSuccess, setXdrParseSuccess] = useState(false);
-  const [useDarkUI, setUseDarkUI] = useState(false);
+
 
   useEffect(() => {
     setPlayer1Address(userAddress);
@@ -130,7 +130,7 @@ export function PassGame({
     setXdrParseSuccess(false);
     setPlayer1Address(userAddress);
     setPlayer1Points(DEFAULT_POINTS);
-    setUseDarkUI(false); // Reset to normal UI
+
   };
 
   const parsePoints = (value: string): bigint | null => {
@@ -564,7 +564,7 @@ export function PassGame({
           console.log('Quickstart game not available yet:', err);
         }
         setGamePhase('guess');
-        setUseDarkUI(true); // Enable dark UI for quickstart games
+
         onStandingsRefresh();
         setSuccess('Quickstart complete! Both players signed and the game is ready.');
         setTimeout(() => setSuccess(null), 2000);
@@ -884,580 +884,295 @@ export function PassGame({
       ? Math.abs(Number(player2Guess) - Number(winningNumber))
       : null;
 
-  // If dark UI is enabled (e.g., after quickstart), render the new interface
-  if (useDarkUI) {
-    const darkUIPhase: 'setup' | 'guess' | 'win' =
-      gamePhase === 'complete' ? 'win' :
-        gamePhase === 'guess' ? 'guess' :
-          'setup';
 
-    const handleDarkUISubmit = async (value: string) => {
-      const numValue = parseInt(value);
-      if (isNaN(numValue)) {
-        setError('Digite um número válido');
-        return;
+  const handleDarkUISubmit = async (value: string) => {
+    const numValue = parseInt(value);
+    if (isNaN(numValue)) {
+      setError('Digite um número válido');
+      return;
+    }
+
+    await runAction(async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        setSuccess(null);
+
+        const signer = getContractSigner();
+        await passService.makeGuess(sessionId, userAddress, numValue, signer);
+
+        setSuccess(`Guess submitted: ${numValue}`);
+        await loadGameState();
+      } catch (err) {
+        console.error('Make guess error:', err);
+        setError(err instanceof Error ? err.message : 'Failed to make guess');
+      } finally {
+        setLoading(false);
       }
-
-      // Set the guess value
-      setGuess(numValue);
-
-      // Wait a tick for state to update, then call the guess handler
-      setTimeout(async () => {
-        if (numValue === null) {
-          setError('Select a number to guess');
-          return;
-        }
-
-        await runAction(async () => {
-          try {
-            setLoading(true);
-            setError(null);
-            setSuccess(null);
-
-            const signer = getContractSigner();
-            await passService.makeGuess(sessionId, userAddress, numValue, signer);
-
-            setSuccess(`Guess submitted: ${numValue}`);
-            await loadGameState();
-          } catch (err) {
-            console.error('Make guess error:', err);
-            setError(err instanceof Error ? err.message : 'Failed to make guess');
-          } finally {
-            setLoading(false);
-          }
-        });
-      }, 0);
-    };
-
-    const winner = gameState?.winner
-      ? (gameState.winner === gameState?.player1 ? 'PLAYER 1' : 'PLAYER 2')
-      : null;
-
-    return (
-      <PassDarkUI
-        gamePhase={darkUIPhase}
-        onSubmit={handleDarkUISubmit}
-        loading={loading}
-        winner={winner}
-      />
-    );
-  }
+    });
+  };
 
   return (
-    <div className="bg-white/70 backdrop-blur-xl rounded-2xl p-8 shadow-xl border-2 border-purple-200">
-      <div className="flex items-center mb-6">
-        <div>
-          <h2 className="text-3xl font-black bg-gradient-to-r from-purple-600 via-pink-600 to-red-600 bg-clip-text text-transparent">
-            Pass Game 🎲
-          </h2>
-          <p className="text-sm text-gray-700 font-semibold mt-1">
-            Guess a number 1-10. Closest guess wins!
-          </p>
-          <p className="text-xs text-gray-500 font-mono mt-1">
+    <div className="pass-game-dark">
+      <div className="pass-container">
+        {/* Header */}
+        <header className="pass-header">
+          <h1 className="pass-title">PASS</h1>
+          <p className="pass-subtitle">Blockchain Cryptography Game</p>
+          <p className="text-xs font-mono opacity-50 mt-2">
             Session ID: {sessionId}
           </p>
-        </div>
-      </div>
+        </header>
 
-      {error && (
-        <div className="mb-6 p-4 bg-gradient-to-r from-red-50 to-pink-50 border-2 border-red-200 rounded-xl">
-          <p className="text-sm font-semibold text-red-700">{error}</p>
-        </div>
-      )}
-
-      {success && (
-        <div className="mb-6 p-4 bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-xl">
-          <p className="text-sm font-semibold text-green-700">{success}</p>
-        </div>
-      )}
-
-      {/* CREATE GAME PHASE */}
-      {gamePhase === 'create' && (
-        <div className="space-y-6">
-          {/* Mode Toggle */}
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 p-2 bg-gray-100 rounded-xl">
-            <button
-              onClick={() => {
-                setCreateMode('create');
-                setExportedAuthEntryXDR(null);
-                setImportAuthEntryXDR('');
-                setImportSessionId('');
-                setImportPlayer1('');
-                setImportPlayer1Points('');
-                setImportPlayer2Points(DEFAULT_POINTS);
-                setLoadSessionId('');
-              }}
-              className={`flex-1 py-3 px-4 rounded-lg font-bold text-sm transition-all ${createMode === 'create'
-                ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-lg'
-                : 'bg-white text-gray-600 hover:bg-gray-50'
-                }`}
-            >
-              Create & Export
-            </button>
-            <button
-              onClick={() => {
-                setCreateMode('import');
-                setExportedAuthEntryXDR(null);
-                setLoadSessionId('');
-              }}
-              className={`flex-1 py-3 px-4 rounded-lg font-bold text-sm transition-all ${createMode === 'import'
-                ? 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white shadow-lg'
-                : 'bg-white text-gray-600 hover:bg-gray-50'
-                }`}
-            >
-              Import Auth Entry
-            </button>
-            <button
-              onClick={() => {
-                setCreateMode('load');
-                setExportedAuthEntryXDR(null);
-                setImportAuthEntryXDR('');
-                setImportSessionId('');
-                setImportPlayer1('');
-                setImportPlayer1Points('');
-                setImportPlayer2Points(DEFAULT_POINTS);
-              }}
-              className={`flex-1 py-3 px-4 rounded-lg font-bold text-sm transition-all ${createMode === 'load'
-                ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-lg'
-                : 'bg-white text-gray-600 hover:bg-gray-50'
-                }`}
-            >
-              Load Existing Game
-            </button>
+        {error && (
+          <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm text-center animate-pulse">
+            {error}
           </div>
+        )}
 
-          <div className="p-4 bg-gradient-to-r from-yellow-50 to-orange-50 border-2 border-yellow-200 rounded-xl">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-bold text-yellow-900">⚡ Quickstart (Dev)</p>
-                <p className="text-xs font-semibold text-yellow-800">
-                  Creates and signs for both dev wallets in one click. Works only in the Games Library.
-                </p>
-              </div>
+        {success && (
+          <div className="mb-6 p-4 bg-green-500/10 border border-green-500/20 rounded-xl text-green-400 text-sm text-center">
+            {success}
+          </div>
+        )}
+
+        {/* CREATE GAME PHASE (Lobby) */}
+        {gamePhase === 'create' && (
+          <div className="space-y-6 w-full">
+            {/* Mode Toggle */}
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 p-2 bg-white/5 rounded-xl backdrop-blur-md border border-white/10">
               <button
-                onClick={handleQuickStart}
-                disabled={isBusy || !quickstartAvailable}
-                className="px-4 py-3 rounded-xl font-bold text-sm text-white bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 disabled:from-gray-200 disabled:to-gray-300 disabled:text-gray-500 transition-all shadow-md hover:shadow-lg transform hover:scale-105 disabled:transform-none"
+                onClick={() => setCreateMode('create')}
+                className={`flex-1 py-3 px-4 rounded-lg font-bold text-xs transition-all ${createMode === 'create' ? 'bg-blue-500 text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
               >
-                {quickstartLoading ? 'Quickstarting...' : '⚡ Quickstart Game'}
+                Create & Export
+              </button>
+              <button
+                onClick={() => setCreateMode('import')}
+                className={`flex-1 py-3 px-4 rounded-lg font-bold text-xs transition-all ${createMode === 'import' ? 'bg-blue-500 text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
+              >
+                Import Auth Entry
+              </button>
+              <button
+                onClick={() => setCreateMode('load')}
+                className={`flex-1 py-3 px-4 rounded-lg font-bold text-xs transition-all ${createMode === 'load' ? 'bg-blue-500 text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
+              >
+                Load Existing Game
               </button>
             </div>
-          </div>
 
-          {createMode === 'create' ? (
-            <div className="space-y-6">
-              <div className="space-y-4">
+            {/* QuickStart Card */}
+            <div className="pass-card bg-yellow-500/5 border-yellow-500/20">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Your Address (Player 1)
-                  </label>
-                  <input
-                    type="text"
-                    value={player1Address}
-                    onChange={(e) => setPlayer1Address(e.target.value.trim())}
-                    placeholder="G..."
-                    className="w-full px-4 py-3 rounded-xl bg-white border-2 border-gray-200 focus:outline-none focus:border-purple-400 focus:ring-4 focus:ring-purple-100 text-sm font-medium text-gray-700"
-                  />
-                  <p className="text-xs font-semibold text-gray-600 mt-1">
-                    Pre-filled from your connected wallet. If you change it, you must be able to sign as that address.
+                  <p className="text-sm font-bold text-yellow-500 flex items-center gap-2">
+                    ⚡ Quickstart (Dev Mode)
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Play instantly with two local dev wallets.
                   </p>
                 </div>
-
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Your Points
-                  </label>
-                  <input
-                    type="text"
-                    value={player1Points}
-                    onChange={(e) => setPlayer1Points(e.target.value)}
-                    placeholder="0.1"
-                    className="w-full px-4 py-3 rounded-xl bg-white border-2 border-gray-200 focus:outline-none focus:border-purple-400 focus:ring-4 focus:ring-purple-100 text-sm font-medium"
-                  />
-                  <p className="text-xs font-semibold text-gray-600 mt-1">
-                    Available: {(Number(availablePoints) / 10000000).toFixed(2)} Points
-                  </p>
-                </div>
-
-                <div className="p-3 bg-blue-50 border-2 border-blue-200 rounded-xl">
-                  <p className="text-xs font-semibold text-blue-800">
-                    ℹ️ Player 2 will specify their own address and points when they import your auth entry. You only need to prepare and export your signature.
-                  </p>
-                </div>
+                <button
+                  onClick={handleQuickStart}
+                  disabled={isBusy || !quickstartAvailable}
+                  className="pass-button h-auto py-2.5 px-6 !bg-yellow-500 !text-black border-none font-black hover:scale-105"
+                >
+                  {quickstartLoading ? 'Creating...' : 'PLAY NOW'}
+                </button>
               </div>
+            </div>
 
-              <div className="pt-4 border-t-2 border-gray-100 space-y-4">
-                <p className="text-xs font-semibold text-gray-600">
-                  Session ID: {sessionId}
-                </p>
+            {createMode === 'create' && (
+              <div className="pass-card">
+                <div className="space-y-4">
+                  <div className="pass-input-container !mb-4">
+                    <label className="pass-input-label !text-left">Your Address (Player 1)</label>
+                    <input
+                      type="text"
+                      value={player1Address}
+                      onChange={(e) => setPlayer1Address(e.target.value.trim())}
+                      className="pass-input !text-left !text-sm font-mono"
+                    />
+                  </div>
 
-                {!exportedAuthEntryXDR ? (
-                  <button
-                    onClick={handlePrepareTransaction}
-                    disabled={isBusy}
-                    className="w-full py-4 rounded-xl font-bold text-white text-sm bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:from-gray-200 disabled:to-gray-300 disabled:text-gray-500 transition-all shadow-lg hover:shadow-xl transform hover:scale-105 disabled:transform-none"
-                  >
-                    {loading ? 'Preparing...' : 'Prepare & Export Auth Entry'}
-                  </button>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="p-4 bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-200 rounded-xl">
-                      <p className="text-xs font-bold uppercase tracking-wide text-green-700 mb-2">
-                        Auth Entry XDR (Player 1 Signed)
-                      </p>
-                      <div className="bg-white p-3 rounded-lg border border-green-200 mb-3">
-                        <code className="text-xs font-mono text-gray-700 break-all">
-                          {exportedAuthEntryXDR}
-                        </code>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <button
-                          onClick={copyAuthEntryToClipboard}
-                          className="py-3 rounded-lg bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white font-bold text-sm transition-all shadow-md hover:shadow-lg transform hover:scale-105"
-                        >
-                          {authEntryCopied ? '✓ Copied!' : '📋 Copy Auth Entry'}
+                  <div className="pass-input-container !mb-4">
+                    <label className="pass-input-label !text-left">Points to Lock</label>
+                    <input
+                      type="text"
+                      value={player1Points}
+                      onChange={(e) => setPlayer1Points(e.target.value)}
+                      className="pass-input !text-left"
+                    />
+                    <p className="text-[10px] text-gray-500 mt-1">Available: {(Number(availablePoints) / 10000000).toFixed(2)} Points</p>
+                  </div>
+
+                  {!exportedAuthEntryXDR ? (
+                    <button onClick={handlePrepareTransaction} disabled={isBusy} className="pass-button">
+                      {loading ? 'Preparing Signature...' : 'GENERATE INVITE'}
+                    </button>
+                  ) : (
+                    <div className="space-y-4 pt-4 border-t border-white/10">
+                      <p className="text-xs font-bold text-green-500 mb-2">Invite Ready! Copy and send to Player 2:</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button onClick={copyAuthEntryToClipboard} className="pass-button !py-3 text-[10px]">
+                          {authEntryCopied ? '✓ COPIED' : 'COPY XDR'}
                         </button>
-                        <button
-                          onClick={copyShareGameUrlWithAuthEntry}
-                          className="py-3 rounded-lg bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white font-bold text-sm transition-all shadow-md hover:shadow-lg transform hover:scale-105"
-                        >
-                          {shareUrlCopied ? '✓ Copied!' : '🔗 Share URL'}
+                        <button onClick={copyShareGameUrlWithAuthEntry} className="pass-button !py-3 text-[10px]">
+                          {shareUrlCopied ? '✓ COPIED' : 'SHARE LINK'}
                         </button>
                       </div>
                     </div>
-                    <p className="text-xs text-gray-600 text-center font-semibold">
-                      Copy the auth entry XDR or share URL with Player 2 to complete the transaction
-                    </p>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
-            </div>
-          ) : createMode === 'import' ? (
-            /* IMPORT MODE */
-            <div className="space-y-4">
-              <div className="p-4 bg-gradient-to-br from-blue-50 to-cyan-50 border-2 border-blue-200 rounded-xl">
-                <p className="text-sm font-semibold text-blue-800 mb-2">
-                  📥 Import Auth Entry from Player 1
-                </p>
-                <p className="text-xs text-gray-700 mb-4">
-                  Paste the auth entry XDR from Player 1. Session ID, Player 1 address, and their points will be auto-extracted. You only need to enter your points amount.
-                </p>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-bold text-gray-700 mb-1 flex items-center gap-2">
-                      Auth Entry XDR
-                      {xdrParsing && (
-                        <span className="text-blue-500 text-xs animate-pulse">Parsing...</span>
-                      )}
-                      {xdrParseSuccess && (
-                        <span className="text-green-600 text-xs">✓ Parsed successfully</span>
-                      )}
-                      {xdrParseError && (
-                        <span className="text-red-600 text-xs">✗ Parse failed</span>
-                      )}
-                    </label>
+            )}
+
+            {createMode === 'import' && (
+              <div className="pass-card">
+                <div className="space-y-4">
+                  <div className="pass-input-container !mb-4">
+                    <label className="pass-input-label !text-left">Auth Entry (from Player 1)</label>
                     <textarea
                       value={importAuthEntryXDR}
                       onChange={(e) => setImportAuthEntryXDR(e.target.value)}
-                      placeholder="Paste Player 1's signed auth entry XDR here..."
-                      rows={4}
-                      className={`w-full px-4 py-3 rounded-xl bg-white border-2 focus:outline-none focus:ring-4 text-xs font-mono resize-none transition-colors ${xdrParseError
-                        ? 'border-red-300 focus:border-red-400 focus:ring-red-100'
-                        : xdrParseSuccess
-                          ? 'border-green-300 focus:border-green-400 focus:ring-green-100'
-                          : 'border-blue-200 focus:border-blue-400 focus:ring-blue-100'
-                        }`}
+                      rows={3}
+                      className="pass-input !text-left !text-[10px] font-mono p-4"
+                      placeholder="Paste XDR here..."
                     />
-                    {xdrParseError && (
-                      <p className="text-xs text-red-600 font-semibold mt-1">
-                        {xdrParseError}
-                      </p>
-                    )}
                   </div>
-                  {/* Auto-populated fields from auth entry (read-only) */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-500 mb-1">Session ID (auto-filled)</label>
-                      <input
-                        type="text"
-                        value={importSessionId}
-                        readOnly
-                        placeholder="Auto-filled from auth entry"
-                        className="w-full px-4 py-2 rounded-xl bg-gray-50 border-2 border-gray-200 text-xs font-mono text-gray-600 cursor-not-allowed"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-500 mb-1">Player 1 Points (auto-filled)</label>
-                      <input
-                        type="text"
-                        value={importPlayer1Points}
-                        readOnly
-                        placeholder="Auto-filled from auth entry"
-                        className="w-full px-4 py-2 rounded-xl bg-gray-50 border-2 border-gray-200 text-xs text-gray-600 cursor-not-allowed"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-500 mb-1">Player 1 Address (auto-filled)</label>
+
+                  <div className="pass-input-container !mb-4">
+                    <label className="pass-input-label !text-left">Your Points (Player 2)</label>
                     <input
                       type="text"
-                      value={importPlayer1}
-                      readOnly
-                      placeholder="Auto-filled from auth entry"
-                      className="w-full px-4 py-2 rounded-xl bg-gray-50 border-2 border-gray-200 text-xs font-mono text-gray-600 cursor-not-allowed"
+                      value={importPlayer2Points}
+                      onChange={(e) => setImportPlayer2Points(e.target.value)}
+                      className="pass-input !text-left"
                     />
                   </div>
-                  {/* User inputs */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-500 mb-1">Player 2 (You)</label>
-                      <input
-                        type="text"
-                        value={userAddress}
-                        readOnly
-                        className="w-full px-4 py-2 rounded-xl bg-gray-50 border-2 border-gray-200 text-xs font-mono text-gray-600 cursor-not-allowed"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">Your Points *</label>
-                      <input
-                        type="text"
-                        value={importPlayer2Points}
-                        onChange={(e) => setImportPlayer2Points(e.target.value)}
-                        placeholder="e.g., 0.1"
-                        className="w-full px-4 py-2 rounded-xl bg-white border-2 border-blue-200 focus:outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 text-xs"
-                      />
-                    </div>
-                  </div>
+
+                  <button
+                    onClick={handleImportTransaction}
+                    disabled={isBusy || !importAuthEntryXDR.trim() || !importPlayer2Points.trim()}
+                    className="pass-button"
+                  >
+                    {loading ? 'Joining Game...' : 'JOIN GAME'}
+                  </button>
                 </div>
               </div>
+            )}
 
-              <button
-                onClick={handleImportTransaction}
-                disabled={isBusy || !importAuthEntryXDR.trim() || !importPlayer2Points.trim()}
-                className="w-full py-4 rounded-xl font-bold text-white text-lg bg-gradient-to-r from-blue-500 via-cyan-500 to-teal-500 hover:from-blue-600 hover:via-cyan-600 hover:to-teal-600 disabled:from-gray-200 disabled:to-gray-300 disabled:text-gray-500 transition-all shadow-xl hover:shadow-2xl transform hover:scale-105 disabled:transform-none"
-              >
-                {loading ? 'Importing & Signing...' : 'Import & Sign Auth Entry'}
-              </button>
-            </div>
-          ) : createMode === 'load' ? (
-            /* LOAD EXISTING GAME MODE */
-            <div className="space-y-4">
-              <div className="p-4 bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-200 rounded-xl">
-                <p className="text-sm font-semibold text-green-800 mb-2">
-                  🎮 Load Existing Game by Session ID
-                </p>
-                <p className="text-xs text-gray-700 mb-4">
-                  Enter a session ID to load and continue an existing game. You must be one of the players.
-                </p>
-                <input
-                  type="text"
-                  value={loadSessionId}
-                  onChange={(e) => setLoadSessionId(e.target.value)}
-                  placeholder="Enter session ID (e.g., 123456789)"
-                  className="w-full px-4 py-3 rounded-xl bg-white border-2 border-green-200 focus:outline-none focus:border-green-400 focus:ring-4 focus:ring-green-100 text-sm font-mono"
-                />
-              </div>
-
-              <div className="p-4 bg-gradient-to-br from-yellow-50 to-amber-50 border-2 border-yellow-200 rounded-xl">
-                <p className="text-xs font-bold text-yellow-800 mb-2">
-                  Requirements
-                </p>
-                <ul className="text-xs text-gray-700 space-y-1 list-disc list-inside">
-                  <li>You must be Player 1 or Player 2 in the game</li>
-                  <li>Game must be active (not completed)</li>
-                  <li>Valid session ID from an existing game</li>
-                </ul>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <button
-                  onClick={handleLoadExistingGame}
-                  disabled={isBusy || !loadSessionId.trim()}
-                  className="py-4 rounded-xl font-bold text-white text-lg bg-gradient-to-r from-green-500 via-emerald-500 to-teal-500 hover:from-green-600 hover:via-emerald-600 hover:to-teal-600 disabled:from-gray-200 disabled:to-gray-300 disabled:text-gray-500 transition-all shadow-xl hover:shadow-2xl transform hover:scale-105 disabled:transform-none"
-                >
-                  {loading ? 'Loading...' : '🎮 Load Game'}
-                </button>
-                <button
-                  onClick={copyShareGameUrlWithSessionId}
-                  disabled={!loadSessionId.trim()}
-                  className="py-4 rounded-xl font-bold text-white text-lg bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 disabled:from-gray-200 disabled:to-gray-300 disabled:text-gray-500 transition-all shadow-xl hover:shadow-2xl transform hover:scale-105 disabled:transform-none"
-                >
-                  {shareUrlCopied ? '✓ Copied!' : '🔗 Share Game'}
-                </button>
-              </div>
-              <p className="text-xs text-gray-600 text-center font-semibold">
-                Load the game to continue playing, or share the URL with another player
-              </p>
-            </div>
-          ) : null}
-        </div>
-      )}
-
-      {/* GUESS PHASE */}
-      {gamePhase === 'guess' && gameState && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className={`p-5 rounded-xl border-2 ${isPlayer1 ? 'border-purple-400 bg-gradient-to-br from-purple-50 to-pink-50 shadow-lg' : 'border-gray-200 bg-white'}`}>
-              <div className="text-xs font-bold uppercase tracking-wide text-gray-600 mb-1">Player 1</div>
-              <div className="font-mono text-sm font-semibold mb-2 text-gray-800">
-                {gameState.player1.slice(0, 8)}...{gameState.player1.slice(-4)}
-              </div>
-              <div className="text-xs font-semibold text-gray-600">
-                Points: {(Number(gameState.player1_points) / 10000000).toFixed(2)}
-              </div>
-              <div className="mt-3">
-                {gameState.player1_guess !== null && gameState.player1_guess !== undefined ? (
-                  <div className="inline-block px-3 py-1 rounded-full bg-gradient-to-r from-green-400 to-emerald-500 text-white text-xs font-bold shadow-md">
-                    ✓ Guessed
+            {createMode === 'load' && (
+              <div className="pass-card">
+                <div className="space-y-4">
+                  <div className="pass-input-container !mb-4">
+                    <label className="pass-input-label !text-left">Session ID</label>
+                    <input
+                      type="text"
+                      value={loadSessionId}
+                      onChange={(e) => setLoadSessionId(e.target.value)}
+                      className="pass-input !text-left font-mono"
+                      placeholder="e.g. 123456"
+                    />
                   </div>
-                ) : (
-                  <div className="inline-block px-3 py-1 rounded-full bg-gray-200 text-gray-600 text-xs font-bold">
-                    Waiting...
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className={`p-5 rounded-xl border-2 ${isPlayer2 ? 'border-purple-400 bg-gradient-to-br from-purple-50 to-pink-50 shadow-lg' : 'border-gray-200 bg-white'}`}>
-              <div className="text-xs font-bold uppercase tracking-wide text-gray-600 mb-1">Player 2</div>
-              <div className="font-mono text-sm font-semibold mb-2 text-gray-800">
-                {gameState.player2.slice(0, 8)}...{gameState.player2.slice(-4)}
-              </div>
-              <div className="text-xs font-semibold text-gray-600">
-                Points: {(Number(gameState.player2_points) / 10000000).toFixed(2)}
-              </div>
-              <div className="mt-3">
-                {gameState.player2_guess !== null && gameState.player2_guess !== undefined ? (
-                  <div className="inline-block px-3 py-1 rounded-full bg-gradient-to-r from-green-400 to-emerald-500 text-white text-xs font-bold shadow-md">
-                    ✓ Guessed
-                  </div>
-                ) : (
-                  <div className="inline-block px-3 py-1 rounded-full bg-gray-200 text-gray-600 text-xs font-bold">
-                    Waiting...
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {(isPlayer1 || isPlayer2) && !hasGuessed && (
-            <div className="space-y-4">
-              <label className="block text-sm font-bold text-gray-700">
-                Make Your Guess (1-10)
-              </label>
-              <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
-                  <button
-                    key={num}
-                    onClick={() => setGuess(num)}
-                    className={`p-4 rounded-xl border-2 font-black text-xl transition-all ${guess === num
-                      ? 'border-purple-500 bg-gradient-to-br from-purple-500 to-pink-500 text-white scale-110 shadow-2xl'
-                      : 'border-gray-200 bg-white hover:border-purple-300 hover:shadow-lg hover:scale-105'
-                      }`}
-                  >
-                    {num}
+                  <button onClick={handleLoadExistingGame} disabled={isBusy || !loadSessionId.trim()} className="pass-button">
+                    {loading ? 'Loading...' : 'LOAD GAME'}
                   </button>
-                ))}
-              </div>
-              <button
-                onClick={handleMakeGuess}
-                disabled={isBusy || guess === null}
-                className="w-full mt-2.5 py-4 rounded-xl font-bold text-white text-lg bg-gradient-to-r from-purple-500 via-pink-500 to-red-500 hover:from-purple-600 hover:via-pink-600 hover:to-red-600 disabled:from-gray-200 disabled:to-gray-300 disabled:text-gray-500 transition-all shadow-xl hover:shadow-2xl transform hover:scale-105 disabled:transform-none"
-              >
-                {loading ? 'Submitting...' : 'Submit Guess'}
-              </button>
-            </div>
-          )}
-
-          {hasGuessed && (
-            <div className="p-4 bg-gradient-to-r from-blue-50 to-cyan-50 border-2 border-blue-200 rounded-xl">
-              <p className="text-sm font-semibold text-blue-700">
-                ✓ You've made your guess. Waiting for other player...
-              </p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* REVEAL PHASE */}
-      {gamePhase === 'reveal' && gameState && (
-        <div className="space-y-6">
-          <div className="p-8 bg-gradient-to-br from-yellow-50 via-orange-50 to-amber-50 border-2 border-yellow-300 rounded-2xl text-center shadow-xl">
-            <div className="text-6xl mb-4">🎊</div>
-            <h3 className="text-2xl font-black text-gray-900 mb-3">
-              Both Players Have Guessed!
-            </h3>
-            <p className="text-sm font-semibold text-gray-700 mb-6">
-              Click below to reveal the winner
-            </p>
-            <button
-              onClick={handleRevealWinner}
-              disabled={isBusy}
-              className="px-10 py-4 rounded-xl font-bold text-white text-lg bg-gradient-to-r from-yellow-500 via-orange-500 to-amber-500 hover:from-yellow-600 hover:via-orange-600 hover:to-amber-600 disabled:from-gray-200 disabled:to-gray-300 disabled:text-gray-500 transition-all shadow-xl hover:shadow-2xl transform hover:scale-105 disabled:transform-none"
-            >
-              {loading ? 'Revealing...' : 'Reveal Winner'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* COMPLETE PHASE */}
-      {gamePhase === 'complete' && gameState && (
-        <div className="space-y-6">
-          <div className="p-10 bg-gradient-to-br from-green-50 via-emerald-50 to-teal-50 border-2 border-green-300 rounded-2xl text-center shadow-2xl">
-            <div className="text-7xl mb-6">🏆</div>
-            <h3 className="text-3xl font-black text-gray-900 mb-4">
-              Game Complete!
-            </h3>
-            <div className="text-2xl font-black text-green-700 mb-6">
-              Winning Number: {gameState.winning_number}
-            </div>
-            <div className="space-y-3 mb-6">
-              <div className="p-4 bg-white/70 border border-green-200 rounded-xl">
-                <p className="text-xs font-bold uppercase tracking-wide text-gray-600 mb-1">Player 1</p>
-                <p className="font-mono text-xs text-gray-700 mb-2">
-                  {gameState.player1.slice(0, 8)}...{gameState.player1.slice(-4)}
-                </p>
-                <p className="text-sm font-semibold text-gray-800">
-                  Guess: {gameState.player1_guess ?? '—'}
-                  {player1Distance !== null ? ` (distance ${player1Distance})` : ''}
-                </p>
-              </div>
-
-              <div className="p-4 bg-white/70 border border-green-200 rounded-xl">
-                <p className="text-xs font-bold uppercase tracking-wide text-gray-600 mb-1">Player 2</p>
-                <p className="font-mono text-xs text-gray-700 mb-2">
-                  {gameState.player2.slice(0, 8)}...{gameState.player2.slice(-4)}
-                </p>
-                <p className="text-sm font-semibold text-gray-800">
-                  Guess: {gameState.player2_guess ?? '—'}
-                  {player2Distance !== null ? ` (distance ${player2Distance})` : ''}
-                </p>
-              </div>
-            </div>
-            {gameState.winner && (
-              <div className="mt-6 p-5 bg-white border-2 border-green-200 rounded-xl shadow-lg">
-                <p className="text-xs font-bold uppercase tracking-wide text-gray-600 mb-2">Winner</p>
-                <p className="font-mono text-sm font-bold text-gray-800">
-                  {gameState.winner.slice(0, 8)}...{gameState.winner.slice(-4)}
-                </p>
-                {gameState.winner === userAddress && (
-                  <p className="mt-3 text-green-700 font-black text-lg">
-                    🎉 You won!
-                  </p>
-                )}
+                </div>
               </div>
             )}
           </div>
-          <button
-            onClick={handleStartNewGame}
-            className="w-full py-4 rounded-xl font-bold text-gray-700 bg-gradient-to-r from-gray-200 to-gray-300 hover:from-gray-300 hover:to-gray-400 transition-all shadow-lg hover:shadow-xl transform hover:scale-105"
-          >
-            Start New Game
-          </button>
-        </div>
-      )}
+        )}
+
+        {/* GAMEPLAY PHASE (Guessing) */}
+        {(gamePhase === 'setup' || gamePhase === 'guess') && gameState && (
+          <div className="w-full">
+            <div className="grid grid-cols-2 gap-4 mb-8">
+              <div className={`p-4 rounded-xl border ${isPlayer1 ? 'border-blue-500/50 bg-blue-500/5' : 'border-white/10 bg-white/5'} transition-all`}>
+                <p className="text-[10px] font-bold text-gray-500 uppercase">Player 1</p>
+                <p className="text-xs font-mono mt-1">{gameState.player1.slice(0, 8)}...{gameState.player1.slice(-4)}</p>
+                <div className="mt-2">
+                  {gameState.player1_guess !== null ? (
+                    <span className="text-[10px] text-green-500 font-bold">READY</span>
+                  ) : (
+                    <span className="text-[10px] text-yellow-500/50">THINKING...</span>
+                  )}
+                </div>
+              </div>
+              <div className={`p-4 rounded-xl border ${isPlayer2 ? 'border-blue-500/50 bg-blue-500/5' : 'border-white/10 bg-white/5'} transition-all`}>
+                <p className="text-[10px] font-bold text-gray-500 uppercase">Player 2</p>
+                <p className="text-xs font-mono mt-1">{gameState.player2.slice(0, 8)}...{gameState.player2.slice(-4)}</p>
+                <div className="mt-2">
+                  {gameState.player2_guess !== null ? (
+                    <span className="text-[10px] text-green-500 font-bold">READY</span>
+                  ) : (
+                    <span className="text-[10px] text-yellow-500/50">THINKING...</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {!hasGuessed ? (
+              <PassDarkUI
+                gamePhase="guess"
+                onSubmit={handleDarkUISubmit}
+                loading={loading}
+              />
+            ) : (
+              <div className="pass-card text-center py-12">
+                <div className="pass-loading mb-6"></div>
+                <p className="text-gray-400">Waiting for counter-party...</p>
+                <p className="text-[10px] text-gray-600 mt-2 uppercase tracking-widest">Transaction pending on-chain</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* REVEAL PHASE */}
+        {gamePhase === 'reveal' && gameState && (
+          <div className="pass-card text-center py-12">
+            <h2 className="pass-win-title !text-3xl mb-4">DUEL COMPLETE</h2>
+            <p className="text-gray-400 mb-8">Both players have committed their guesses. Reveal the winner to settle the contract.</p>
+            <button
+              onClick={handleRevealWinner}
+              disabled={isBusy}
+              className="pass-button max-w-xs mx-auto"
+            >
+              {loading ? 'REVEALING...' : 'REVEAL WINNER'}
+            </button>
+          </div>
+        )}
+
+        {/* COMPLETE PHASE */}
+        {gamePhase === 'complete' && gameState && (
+          <div className="w-full space-y-6">
+            <div className="pass-card text-center border-yellow-500/30">
+              <div className="text-5xl mb-4">🏆</div>
+              <h2 className="pass-win-title !text-4xl mb-2">WINNER</h2>
+              <p className="font-mono text-sm text-yellow-500 mb-6">
+                {gameState.winner?.slice(0, 12)}...{gameState.winner?.slice(-8)}
+              </p>
+
+              <div className="grid grid-cols-2 gap-4 pt-6 border-t border-white/10">
+                <div>
+                  <p className="text-[10px] text-gray-500 uppercase">Winning Number</p>
+                  <p className="text-2xl font-black">{gameState.winning_number}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-gray-500 uppercase">Your Result</p>
+                  <p className="text-2xl font-black text-green-500">
+                    {gameState.winner === userAddress ? 'WON' : 'LOST'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <button onClick={handleStartNewGame} className="pass-button !bg-white/5 hover:!bg-white/10">
+              RETURN TO LOBBY
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
