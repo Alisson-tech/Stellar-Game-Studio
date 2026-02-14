@@ -52,12 +52,6 @@ export function PassDarkUI({ gamePhase, onSubmit, loading = false, winner = null
     return (
         <div className="pass-game-dark">
             <div className="pass-container">
-                {/* Header */}
-                <header className="pass-header">
-                    <h1 className="pass-title">PASS</h1>
-                    <p className="pass-subtitle">Blockchain Cryptography Game</p>
-                </header>
-
                 {/* Main Game Card */}
                 {gamePhase !== 'win' && (
                     <div className="pass-card">
