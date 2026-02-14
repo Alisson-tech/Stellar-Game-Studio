@@ -37,9 +37,10 @@
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'San Francisco', sans-serif;
     background: var(--pass-bg-primary);
     color: var(--pass-text-primary);
-    min-height: 100vh;
+    min-height: auto;
     position: relative;
     overflow-x: hidden;
+    padding-bottom: 2rem;
 }
 
 /* Background pattern - subtle grid */
@@ -64,8 +65,8 @@
     z-index: 1;
     max-width: 600px;
     margin: 0 auto;
-    padding: 3rem 1.5rem;
-    min-height: 30vh;
+    padding: 2rem 1.5rem;
+    min-height: auto;
     display: flex;
     flex-direction: column;
     align-items: center;
