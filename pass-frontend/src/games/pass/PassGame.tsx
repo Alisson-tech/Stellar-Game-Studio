@@ -155,9 +155,12 @@ export function PassGame({
       // Determine game phase based on state
       if (game && game.winner !== null && game.winner !== undefined) {
         setGamePhase('complete');
-      } else if (game && game.player1_guess !== null && game.player1_guess !== undefined &&
-        game.player2_guess !== null && game.player2_guess !== undefined) {
+      } else if (game && game.player1_last_guess !== null && game.player1_last_guess !== undefined &&
+        game.player2_last_guess !== null && game.player2_last_guess !== undefined) {
         setGamePhase('reveal');
+      } else if (game && game.player1_secret_hash !== null && game.player1_secret_hash !== undefined &&
+        game.player2_secret_hash !== null && game.player2_secret_hash !== undefined) {
+        setGamePhase('guess');
       } else {
         setGamePhase('setup');
       }
@@ -724,19 +727,24 @@ export function PassGame({
 
         // Determine game phase based on game state
         if (game.winner !== null && game.winner !== undefined) {
-          // Game is complete - show reveal phase with winner
-          setGamePhase('reveal');
+          // Game is complete - show complete phase with winner
+          setGamePhase('complete');
           const isWinner = game.winner === userAddress;
           setSuccess(isWinner ? '🎉 You won this game!' : 'Game complete. Winner revealed.');
-        } else if (game.player1_guess !== null && game.player1_guess !== undefined &&
-          game.player2_guess !== null && game.player2_guess !== undefined) {
+        } else if (game.player1_last_guess !== null && game.player1_last_guess !== undefined &&
+          game.player2_last_guess !== null && game.player2_last_guess !== undefined) {
           // Both players guessed, waiting for reveal
           setGamePhase('reveal');
           setSuccess('Game loaded! Both players have guessed. You can reveal the winner.');
-        } else {
-          // Still in guessing phase
+        } else if (game.player1_secret_hash !== null && game.player1_secret_hash !== undefined &&
+          game.player2_secret_hash !== null && game.player2_secret_hash !== undefined) {
+          // Both secrets registered, in guessing phase
           setGamePhase('guess');
           setSuccess('Game loaded! Make your guess.');
+        } else {
+          // Still in setup phase (waiting for secrets)
+          setGamePhase('setup');
+          setSuccess('Game loaded! Register your secret.');
         }
 
         // Clear success message after 2 seconds
@@ -811,7 +819,7 @@ export function PassGame({
         setSuccess(null);
 
         const signer = getContractSigner();
-        await passService.makeGuess(sessionId, userAddress, guess, signer);
+        await passService.submitGuess(sessionId, userAddress, guess, signer);
 
         setSuccess(`Guess submitted: ${guess}`);
         await loadGameState();
@@ -869,19 +877,20 @@ export function PassGame({
 
   const isPlayer1 = gameState && gameState.player1 === userAddress;
   const isPlayer2 = gameState && gameState.player2 === userAddress;
-  const hasGuessed = isPlayer1 ? gameState?.player1_guess !== null && gameState?.player1_guess !== undefined :
-    isPlayer2 ? gameState?.player2_guess !== null && gameState?.player2_guess !== undefined : false;
+  const hasGuessed = isPlayer1 ? gameState?.player1_last_guess !== null && gameState?.player1_last_guess !== undefined :
+    isPlayer2 ? gameState?.player2_last_guess !== null && gameState?.player2_last_guess !== undefined : false;
 
-  const winningNumber = gameState?.winning_number;
-  const player1Guess = gameState?.player1_guess;
-  const player2Guess = gameState?.player2_guess;
+  const player1Guess = gameState?.player1_last_guess;
+  const player2Guess = gameState?.player2_last_guess;
+
+  // For the Pass game, there's no "winning_number" - the winner is determined by comparing guesses to opponent's secrets
   const player1Distance =
-    winningNumber !== null && winningNumber !== undefined && player1Guess !== null && player1Guess !== undefined
-      ? Math.abs(Number(player1Guess) - Number(winningNumber))
+    player1Guess !== null && player1Guess !== undefined && gameState?.player2_secret_hash !== null && gameState?.player2_secret_hash !== undefined
+      ? Math.abs(Number(player1Guess) - Number(gameState.player2_secret_hash))
       : null;
   const player2Distance =
-    winningNumber !== null && winningNumber !== undefined && player2Guess !== null && player2Guess !== undefined
-      ? Math.abs(Number(player2Guess) - Number(winningNumber))
+    player2Guess !== null && player2Guess !== undefined && gameState?.player1_secret_hash !== null && gameState?.player1_secret_hash !== undefined
+      ? Math.abs(Number(player2Guess) - Number(gameState.player1_secret_hash))
       : null;
 
 
@@ -899,13 +908,22 @@ export function PassGame({
         setSuccess(null);
 
         const signer = getContractSigner();
-        await passService.makeGuess(sessionId, userAddress, numValue, signer);
 
-        setSuccess(`Guess submitted: ${numValue}`);
+        // Determine action based on game phase
+        if (gamePhase === 'setup') {
+          // Register secret
+          await passService.registerSecret(sessionId, userAddress, numValue, signer);
+          setSuccess(`Segredo registrado: ${numValue}`);
+        } else if (gamePhase === 'guess') {
+          // Submit guess
+          await passService.submitGuess(sessionId, userAddress, numValue, signer);
+          setSuccess(`Palpite enviado: ${numValue}`);
+        }
+
         await loadGameState();
       } catch (err) {
-        console.error('Make guess error:', err);
-        setError(err instanceof Error ? err.message : 'Failed to make guess');
+        console.error('Action error:', err);
+        setError(err instanceof Error ? err.message : 'Failed to perform action');
       } finally {
         setLoading(false);
       }
@@ -1084,7 +1102,7 @@ export function PassGame({
           </div>
         )}
 
-        {/* GAMEPLAY PHASE (Guessing) */}
+        {/* GAMEPLAY PHASE (Setup and Guessing) */}
         {(gamePhase === 'setup' || gamePhase === 'guess') && gameState && (
           <div className="w-full">
             <div className="grid grid-cols-2 gap-4 mb-8">
@@ -1092,10 +1110,18 @@ export function PassGame({
                 <p className="text-[10px] font-bold text-gray-500 uppercase">Player 1</p>
                 <p className="text-xs font-mono mt-1">{gameState.player1.slice(0, 8)}...{gameState.player1.slice(-4)}</p>
                 <div className="mt-2">
-                  {gameState.player1_guess !== null ? (
-                    <span className="text-[10px] text-green-500 font-bold">READY</span>
+                  {gamePhase === 'setup' ? (
+                    gameState.player1_secret_hash !== null ? (
+                      <span className="text-[10px] text-green-500 font-bold">SECRET SET</span>
+                    ) : (
+                      <span className="text-[10px] text-yellow-500/50">WAITING...</span>
+                    )
                   ) : (
-                    <span className="text-[10px] text-yellow-500/50">THINKING...</span>
+                    gameState.player1_last_guess !== null ? (
+                      <span className="text-[10px] text-green-500 font-bold">GUESSED</span>
+                    ) : (
+                      <span className="text-[10px] text-yellow-500/50">THINKING...</span>
+                    )
                   )}
                 </div>
               </div>
@@ -1103,10 +1129,18 @@ export function PassGame({
                 <p className="text-[10px] font-bold text-gray-500 uppercase">Player 2</p>
                 <p className="text-xs font-mono mt-1">{gameState.player2.slice(0, 8)}...{gameState.player2.slice(-4)}</p>
                 <div className="mt-2">
-                  {gameState.player2_guess !== null ? (
-                    <span className="text-[10px] text-green-500 font-bold">READY</span>
+                  {gamePhase === 'setup' ? (
+                    gameState.player2_secret_hash !== null ? (
+                      <span className="text-[10px] text-green-500 font-bold">SECRET SET</span>
+                    ) : (
+                      <span className="text-[10px] text-yellow-500/50">WAITING...</span>
+                    )
                   ) : (
-                    <span className="text-[10px] text-yellow-500/50">THINKING...</span>
+                    gameState.player2_last_guess !== null ? (
+                      <span className="text-[10px] text-green-500 font-bold">GUESSED</span>
+                    ) : (
+                      <span className="text-[10px] text-yellow-500/50">THINKING...</span>
+                    )
                   )}
                 </div>
               </div>
@@ -1114,7 +1148,7 @@ export function PassGame({
 
             {!hasGuessed ? (
               <PassDarkUI
-                gamePhase="guess"
+                gamePhase={gamePhase}
                 onSubmit={handleDarkUISubmit}
                 loading={loading}
               />
@@ -1155,8 +1189,10 @@ export function PassGame({
 
               <div className="grid grid-cols-2 gap-4 pt-6 border-t border-white/10">
                 <div>
-                  <p className="text-[10px] text-gray-500 uppercase">Winning Number</p>
-                  <p className="text-2xl font-black">{gameState.winning_number}</p>
+                  <p className="text-[10px] text-gray-500 uppercase">Your Guess</p>
+                  <p className="text-2xl font-black">
+                    {isPlayer1 ? gameState.player1_last_guess : gameState.player2_last_guess}
+                  </p>
                 </div>
                 <div>
                   <p className="text-[10px] text-gray-500 uppercase">Your Result</p>

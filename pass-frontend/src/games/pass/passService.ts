@@ -576,26 +576,60 @@ export class PassService {
   }
 
   /**
-   * Make a guess (1-10)
+   * Register a secret for a player (hashed)
+   * Both players must register their secrets before the game starts
    */
-  async makeGuess(
+  async registerSecret(
+    sessionId: number,
+    playerAddress: string,
+    secretHash: number,
+    signer: Pick<contract.ClientOptions, 'signTransaction' | 'signAuthEntry'>,
+    authTtlMinutes?: number
+  ) {
+    const client = this.createSigningClient(playerAddress, signer);
+    const tx = await client.register_secret({
+      session_id: sessionId,
+      player: playerAddress,
+      secret_hash: secretHash,
+    }, DEFAULT_METHOD_OPTIONS);
+
+    const validUntilLedgerSeq = authTtlMinutes
+      ? await calculateValidUntilLedger(RPC_URL, authTtlMinutes)
+      : await calculateValidUntilLedger(RPC_URL, DEFAULT_AUTH_TTL_MINUTES);
+
+    try {
+      const sentTx = await signAndSendViaLaunchtube(tx, DEFAULT_METHOD_OPTIONS.timeoutInSeconds, validUntilLedgerSeq);
+
+      if (sentTx.getTransactionResponse?.status === 'FAILED') {
+        const errorMessage = this.extractErrorFromDiagnostics(sentTx.getTransactionResponse);
+        throw new Error(`Transaction failed: ${errorMessage}`);
+      }
+
+      return sentTx.result;
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('Transaction failed!')) {
+        throw new Error('Transaction failed - check if you haven\'t already registered your secret');
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Submit a guess for the opponent's secret
+   */
+  async submitGuess(
     sessionId: number,
     playerAddress: string,
     guess: number,
     signer: Pick<contract.ClientOptions, 'signTransaction' | 'signAuthEntry'>,
     authTtlMinutes?: number
   ) {
-    if (guess < 1 || guess > 10) {
-      throw new Error('Guess must be between 1 and 10');
-    }
-
     const client = this.createSigningClient(playerAddress, signer);
-    const tx = await client.make_guess({
+    const tx = await client.submit_guess({
       session_id: sessionId,
       player: playerAddress,
       guess,
     }, DEFAULT_METHOD_OPTIONS);
-    // NOTE: Contract methods automatically simulate - footprint is already prepared
 
     const validUntilLedgerSeq = authTtlMinutes
       ? await calculateValidUntilLedger(RPC_URL, authTtlMinutes)
@@ -619,18 +653,24 @@ export class PassService {
   }
 
   /**
-   * Reveal the winner after both players have guessed
+   * Submit proof for verification (mock proof generation)
+   * This is a placeholder - in real implementation would use ZK proofs
    */
-  async revealWinner(
+  async submitProof(
     sessionId: number,
-    callerAddress: string,
-    signer: Pick<contract.ClientOptions, 'signTransaction' | 'signAuthEntry'>,
+    proof: Uint8Array,
     authTtlMinutes?: number
   ) {
-    const client = this.createSigningClient(callerAddress, signer);
-    const tx = await client.reveal_winner({ session_id: sessionId }, DEFAULT_METHOD_OPTIONS);
-    // NOTE: Contract methods automatically simulate - footprint already includes all required storage keys
-    // (reveal_winner calls the Game Hub end_game() hook)
+    const baseClient = new PassClient({
+      contractId: this.contractId,
+      networkPassphrase: NETWORK_PASSPHRASE,
+      rpcUrl: RPC_URL,
+    });
+
+    const tx = await baseClient.submit_proof({
+      session_id: sessionId,
+      proof: Buffer.from(proof),
+    }, DEFAULT_METHOD_OPTIONS);
 
     const validUntilLedgerSeq = authTtlMinutes
       ? await calculateValidUntilLedger(RPC_URL, authTtlMinutes)
@@ -639,27 +679,66 @@ export class PassService {
     try {
       const sentTx = await signAndSendViaLaunchtube(tx, DEFAULT_METHOD_OPTIONS.timeoutInSeconds, validUntilLedgerSeq);
 
-      // Check transaction status before accessing result
       if (sentTx.getTransactionResponse?.status === 'FAILED') {
-        // Extract error from diagnostic events instead of return_value
         const errorMessage = this.extractErrorFromDiagnostics(sentTx.getTransactionResponse);
         throw new Error(`Transaction failed: ${errorMessage}`);
       }
 
       return sentTx.result;
     } catch (err) {
-      // If we get here, either:
-      // 1. The transaction failed and we couldn't parse the result (return_value is null)
-      // 2. The transaction submission failed
-      // 3. The transaction is still pending after timeout
-
-      if (err instanceof Error && err.message.includes('Transaction failed!')) {
-        // This is the SDK error when trying to access .result on a failed transaction
-        throw new Error('Transaction failed - check if both players have guessed and the game is still active');
-      }
-
       throw err;
     }
+  }
+
+  /**
+   * Verify proof and determine the winner
+   * Compares player guesses with opponent secrets
+   */
+  async verifyProof(
+    sessionId: number,
+    playerAddress: string,
+    signer: Pick<contract.ClientOptions, 'signTransaction' | 'signAuthEntry'>,
+    authTtlMinutes?: number
+  ) {
+    const client = this.createSigningClient(playerAddress, signer);
+    const tx = await client.verify_proof({
+      session_id: sessionId,
+    }, DEFAULT_METHOD_OPTIONS);
+
+    const validUntilLedgerSeq = authTtlMinutes
+      ? await calculateValidUntilLedger(RPC_URL, authTtlMinutes)
+      : await calculateValidUntilLedger(RPC_URL, DEFAULT_AUTH_TTL_MINUTES);
+
+    try {
+      const sentTx = await signAndSendViaLaunchtube(tx, DEFAULT_METHOD_OPTIONS.timeoutInSeconds, validUntilLedgerSeq);
+
+      if (sentTx.getTransactionResponse?.status === 'FAILED') {
+        const errorMessage = this.extractErrorFromDiagnostics(sentTx.getTransactionResponse);
+        throw new Error(`Transaction failed: ${errorMessage}`);
+      }
+
+      return sentTx.result;
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('Transaction failed!')) {
+        throw new Error('Transaction failed - check if both players have guessed');
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Reveal the winner after both players have guessed
+   * (Deprecated - use verifyProof instead)
+   */
+  async revealWinner(
+    sessionId: number,
+    callerAddress: string,
+    signer: Pick<contract.ClientOptions, 'signTransaction' | 'signAuthEntry'>,
+    authTtlMinutes?: number
+  ) {
+    // In the new Pass game, verification is done by calling verify_proof
+    // This method is kept for backwards compatibility but delegates to verifyProof
+    return this.verifyProof(sessionId, callerAddress, signer, authTtlMinutes);
   }
 
   /**

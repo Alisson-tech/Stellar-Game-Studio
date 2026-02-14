@@ -41,21 +41,32 @@ export const networks = {
 
 export interface Game {
   player1: string;
-  player1_guess: Option<u32>;
-  player1_points: i128;
   player2: string;
-  player2_guess: Option<u32>;
+  player1_points: i128;
   player2_points: i128;
+  player1_secret_hash: Option<u32>;
+  player2_secret_hash: Option<u32>;
+  player1_last_guess: Option<u32>;
+  player2_last_guess: Option<u32>;
+  verification_proof: Option<Buffer>;
   winner: Option<string>;
-  winning_number: Option<u32>;
+  status: GameStatus;
+}
+
+export enum GameStatus {
+  WaitingForPlayers = "WaitingForPlayers",
+  Setup = "Setup",
+  Playing = "Playing",
+  Finished = "Finished",
 }
 
 export const Errors = {
   1: {message:"GameNotFound"},
   2: {message:"NotPlayer"},
   3: {message:"AlreadyGuessed"},
-  4: {message:"BothPlayersNotGuessed"},
-  5: {message:"GameAlreadyEnded"}
+  6: {message:"InvalidStatus"},
+  7: {message:"SecretAlreadyRegistered"},
+  8: {message:"BothPlayersNotGuessed"}
 }
 
 export type DataKey = {tag: "Game", values: readonly [u32]} | {tag: "GameHubAddress", values: void} | {tag: "Admin", values: void};
@@ -96,7 +107,7 @@ export interface Client {
    * * `session_id` - The session ID of the game
    * 
    * # Returns
-   * * `Game` - The game state (includes winning number after game ends)
+   * * `Game` - The game state
    */
   get_game: ({session_id}: {session_id: u32}, options?: MethodOptions) => Promise<AssembledTransaction<Result<Game>>>
 
@@ -119,24 +130,54 @@ export interface Client {
   set_admin: ({new_admin}: {new_admin: string}, options?: MethodOptions) => Promise<AssembledTransaction<null>>
 
   /**
-   * Construct and simulate a make_guess transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
-   * Make a guess for the current game.
-   * Players can guess a number between 1 and 10.
+   * Construct and simulate a register_secret transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Register the secret hash for a player.
+   * Both players must register their secret hash to start the game.
+   * 
+   * # Arguments
+   * * `session_id` - The session ID of the game
+   * * `player` - Address of the player registering the secret
+   * * `secret_hash` - Hash of the secret number
+   */
+  register_secret: ({session_id, player, secret_hash}: {session_id: u32, player: string, secret_hash: u32}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
+
+  /**
+   * Construct and simulate a submit_guess transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Submit a guess for the opponent's secret.
    * 
    * # Arguments
    * * `session_id` - The session ID of the game
    * * `player` - Address of the player making the guess
-   * * `guess` - The guessed number (1-10)
+   * * `guess` - The guessed number
    */
-  make_guess: ({session_id, player, guess}: {session_id: u32, player: string, guess: u32}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
+  submit_guess: ({session_id, player, guess}: {session_id: u32, player: string, guess: u32}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
+
+  /**
+   * Construct and simulate a submit_proof transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Submit a ZK proof to verify a guess or claim victory.
+   * 
+   * # Arguments
+   * * `session_id` - The session ID of the game
+   * * `proof` - The proof bytes
+   */
+  submit_proof: ({session_id, proof}: {session_id: u32, proof: Buffer}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
+
+  /**
+   * Construct and simulate a verify_proof transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Verify the stored proof and determine the winner.
+   * 
+   * # Arguments
+   * * `session_id` - The session ID of the game
+   * 
+   * # Returns
+   * * `Address` - Address of the winner
+   */
+  verify_proof: ({session_id}: {session_id: u32}, options?: MethodOptions) => Promise<AssembledTransaction<Result<string>>>
 
   /**
    * Construct and simulate a start_game transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Start a new game between two players with points.
    * This creates a session in the Game Hub and locks points before starting the game.
-   * 
-   * **CRITICAL:** This method requires authorization from THIS contract (not players).
-   * The Game Hub will call `game_id.require_auth()` which checks this contract's address.
    * 
    * # Arguments
    * * `session_id` - Unique session identifier (u32)
@@ -146,21 +187,6 @@ export interface Client {
    * * `player2_points` - Points amount committed by player 2
    */
   start_game: ({session_id, player1, player2, player1_points, player2_points}: {session_id: u32, player1: string, player2: string, player1_points: i128, player2_points: i128}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
-
-  /**
-   * Construct and simulate a reveal_winner transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
-   * Reveal the winner of the game and submit outcome to GameHub.
-   * Can only be called after both players have made their guesses.
-   * This generates the winning number, determines the winner, and ends the session.
-   * 
-   * # Arguments
-   * * `session_id` - The session ID of the game
-   * 
-   * # Returns
-   * * `Address` - Address of the winning player
-   */
-  reveal_winner: ({session_id}: {session_id: u32}, options?: MethodOptions) => Promise<AssembledTransaction<Result<string>>>
-
 }
 export class Client extends ContractClient {
   static async deploy<T = Client>(
@@ -199,13 +225,15 @@ export class Client extends ContractClient {
   }
   public readonly fromJSON = {
     get_hub: this.txFromJSON<string>,
-        set_hub: this.txFromJSON<null>,
-        upgrade: this.txFromJSON<null>,
-        get_game: this.txFromJSON<Result<Game>>,
-        get_admin: this.txFromJSON<string>,
-        set_admin: this.txFromJSON<null>,
-        make_guess: this.txFromJSON<Result<void>>,
-        start_game: this.txFromJSON<Result<void>>,
-        reveal_winner: this.txFromJSON<Result<string>>
+    set_hub: this.txFromJSON<null>,
+    upgrade: this.txFromJSON<null>,
+    get_game: this.txFromJSON<Result<Game>>,
+    get_admin: this.txFromJSON<string>,
+    set_admin: this.txFromJSON<null>,
+    register_secret: this.txFromJSON<Result<void>>,
+    submit_guess: this.txFromJSON<Result<void>>,
+    submit_proof: this.txFromJSON<Result<void>>,
+    verify_proof: this.txFromJSON<Result<string>>,
+    start_game: this.txFromJSON<Result<void>>
   }
 }
