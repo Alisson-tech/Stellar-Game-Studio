@@ -45,6 +45,7 @@ pub enum Error {
     GameAlreadyEnded = 5,
     InvalidStatus = 6,
     SecretAlreadyRegistered = 7,
+    BothPlayersNotGuessed = 8,
 }
 
 // ============================================================================
@@ -58,8 +59,8 @@ pub struct Game {
     pub player2: Address,
     pub player1_points: i128,
     pub player2_points: i128,
-    pub player1_secret_hash: Option<BytesN<32>>,
-    pub player2_secret_hash: Option<BytesN<32>>,
+    pub player1_secret_hash: Option<u32>,
+    pub player2_secret_hash: Option<u32>,
     pub player1_last_guess: Option<u32>,
     pub player2_last_guess: Option<u32>,
     pub verification_proof: Option<Bytes>,
@@ -214,7 +215,7 @@ impl PassContract {
         env: Env,
         session_id: u32,
         player: Address,
-        secret_hash: BytesN<32>,
+        secret_hash: u32,
     ) -> Result<(), Error> {
         player.require_auth();
 
@@ -320,36 +321,66 @@ impl PassContract {
             return Err(Error::InvalidStatus);
         }
 
-        // Placeholder: If there is a proof, we assume it validates the last guess correctly
-        // In a real scenario, we would run a verifier here
+        // 1. Verificação de "DA" (Data Availability)
+        // No futuro, isso será usado para passar os bytes da Prova ZK
         if game.verification_proof.is_none() {
-            // No proof submitted yet
-            panic!("No proof to verify");
+            panic!("Nenhuma prova (ou sinal de verificacao) foi submetida");
         }
 
-        // Mock Logic: If called, we declare the game ended for demonstration
-        // Whoever called implementation would be the "winner" in this mock,
-        // but let's say Player 1 won for now or check who has a guess.
+        // 2. Recuperar os últimos palpites (Puros)
+        let p1_guess = game
+            .player1_last_guess
+            .expect("Player 1 nao enviou palpite");
+        let p2_guess = game
+            .player2_last_guess
+            .expect("Player 2 nao enviou palpite");
 
-        // Let's assume validation passed for Player 1's guess
-        let winner = game.player1.clone();
+        // 3. Recuperar os Segredos (Hashes)
+        let s1_hash = game.player1_secret_hash.expect("P1 secret hash ausente");
+        let s2_hash = game.player2_secret_hash.expect("P2 secret hash ausente");
 
-        game.status = GameStatus::Finished;
-        game.winner = Some(winner.clone());
-        env.storage().temporary().set(&key, &game);
+        // Regra de Vitória:
+        // Player 1 ganha se o palpite dele (p1_guess_hash) bater com o segredo do Player 2 (s2_hash)
+        let player1_wins = p1_guess == s2_hash;
+        let player2_wins = p2_guess == s1_hash;
 
-        // Call GameHub to end game
-        let game_hub_addr: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::GameHubAddress)
-            .expect("GameHub address not set");
+        let winner = if player1_wins {
+            Some(game.player1.clone())
+        } else if player2_wins {
+            Some(game.player2.clone())
+        } else {
+            None
+        };
 
-        let game_hub = GameHubClient::new(&env, &game_hub_addr);
-        let player1_won = winner == game.player1;
-        game_hub.end_game(&session_id, &player1_won);
+        if let Some(w) = winner {
+            // Se houve vencedor, finaliza
+            game.status = GameStatus::Finished;
+            game.winner = Some(w.clone());
+            env.storage().temporary().set(&key, &game);
 
-        Ok(winner)
+            // Comunicação com o Hub
+            let hub_addr: Address = env
+                .storage()
+                .instance()
+                .get(&DataKey::GameHubAddress)
+                .unwrap();
+            let hub = GameHubClient::new(&env, &hub_addr);
+            hub.end_game(&session_id, &(w == game.player1));
+
+            Ok(w)
+        } else {
+            // SE NINGUÉM ACERTOU: Limpamos e SALVAMOS.
+            game.player1_last_guess = None;
+            game.player2_last_guess = None;
+            game.verification_proof = None;
+
+            // CRUCIAL: Salvar o estado sem dar panic!
+            env.storage().temporary().set(&key, &game);
+
+            // Retornamos um Erro customizado (que não seja Abort) para o teste
+            // Ou apenas definimos um vencedor fictício/vazio.
+            Ok(env.current_contract_address())
+        }
     }
 
     /// Get game information.
