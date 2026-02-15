@@ -876,6 +876,69 @@ export function PassGame({
     return updatedGame;
   };
 
+  // Auto-call verifyProof when both players have submitted their proofs
+  useEffect(() => {
+    if (gamePhase !== 'guess' || !gameState || !player1ProofSubmitted || !player2ProofSubmitted) {
+      return;
+    }
+
+    const verifyAndComplete = async () => {
+      try {
+        console.log('[AutoVerify] Both proofs submitted, calling verify_proof...');
+        const signer = getContractSigner();
+        const result = await passService.verifyProof(sessionId, userAddress, signer);
+        console.log('[AutoVerify] Verify result:', result);
+
+        // Fetch updated on-chain state
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const updatedGame = await passService.getGame(sessionId);
+        console.log('[AutoVerify] Updated game state:', updatedGame);
+        
+        setGameState(updatedGame);
+
+        // Determine outcome
+        if (updatedGame?.winner) {
+          // Game ended with a winner
+          console.log('[AutoVerify] Game has winner:', updatedGame.winner);
+          setGamePhase('complete');
+          const isWinner = updatedGame.winner === userAddress;
+          setSuccess(isWinner ? '🎉 Você venceu!' : '💔 Você perdeu!');
+          onStandingsRefresh();
+        } else if (updatedGame?.status.tag === 'Draw') {
+          // Draw game
+          console.log('[AutoVerify] Game is a draw');
+          setGamePhase('complete');
+          setSuccess('🤝 Empate! Ambos acertaram!');
+          onStandingsRefresh();
+        } else {
+          // No one guessed correctly yet - continue playing
+          console.log('[AutoVerify] No winner yet, game continues');
+          setLastProofResult('Ninguém acertou esta rodada. Faça outro palpite!');
+          setSuccess('Jogo continua! Ninguém acertou ainda.');
+          // Reset proof states and guesses for next round
+          setPlayer1ProofSubmitted(false);
+          setPlayer2ProofSubmitted(false);
+          setGuess(null);
+        }
+      } catch (err) {
+        console.error('[AutoVerify] Error verifying proofs:', err);
+        const errorMsg = err instanceof Error ? err.message : 'Erro ao verificar provas';
+        
+        // If the error is that both players haven't submitted yet, just wait
+        if (errorMsg.includes('InvalidStatus') || errorMsg.includes('BothPlayersNotGuessed')) {
+          console.log('[AutoVerify] Players still submitting proofs, will retry...');
+          // Will retry on next effect run
+        } else {
+          console.error('[AutoVerify] Verification failed:', errorMsg);
+        }
+      }
+    };
+
+    // Debounce to avoid multiple calls
+    const timeoutId = setTimeout(verifyAndComplete, 1000);
+    return () => clearTimeout(timeoutId);
+  }, [gamePhase, player1ProofSubmitted, player2ProofSubmitted, sessionId, gameState]);
+
   const handleSubmitProof = async () => {
     await runAction(async () => {
       try {
@@ -914,9 +977,9 @@ export function PassGame({
         
         console.log('[SubmitProof] Proof stats:', { acertos, erros, permutados });
         
-        // STEP 2: Submit proof to the contract
+        // STEP 2: Submit proof to the contract (requires authentication)
         console.log('[SubmitProof] Submitting proof to contract...');
-        await passService.submitProof(sessionId, userAddress, acertos, erros, permutados);
+        await passService.submitProof(sessionId, userAddress, acertos, erros, permutados, signer);
         
         // Mark current player as having submitted proof
         if (isPlayer1) {
@@ -925,43 +988,19 @@ export function PassGame({
           setPlayer2ProofSubmitted(true);
         }
         
-        setSuccess('✓ Prova enviada! Verificando resultado...');
+        setSuccess('✓ Prova enviada! Aguardando a prova do outro jogador...');
         
-        // STEP 3: Call verify_proof to check results
-        console.log('[SubmitProof] Calling verify_proof to determine outcome...');
-        const result = await passService.verifyProof(sessionId, userAddress, signer);
-        console.log('[SubmitProof] Verify result:', result);
-
-        // STEP 4: Fetch updated on-chain state
+        // STEP 3: Fetch updated on-chain state
+        console.log('[SubmitProof] Fetching updated game state...');
         await new Promise((resolve) => setTimeout(resolve, 500));
         const updatedGame = await passService.getGame(sessionId);
         console.log('[SubmitProof] Updated game state:', updatedGame);
         
         setGameState(updatedGame);
-
-        // Determine outcome
-        if (updatedGame?.winner) {
-          // Game ended with a winner
-          console.log('[SubmitProof] Game has winner:', updatedGame.winner);
-          setGamePhase('complete');
-          const isWinner = updatedGame.winner === userAddress;
-          setSuccess(isWinner ? '🎉 Você venceu!' : '💔 Você perdeu!');
-          onStandingsRefresh();
-        } else {
-          // Draw or no one guessed correctly yet
-          console.log('[SubmitProof] No winner yet or draw');
-          // Check if both players have guessed correctly in this round
-          const p1Guessed = updatedGame?.player1_last_guess !== null && updatedGame?.player1_last_guess !== undefined;
-          const p2Guessed = updatedGame?.player2_last_guess !== null && updatedGame?.player2_last_guess !== undefined;
-          
-          if (p1Guessed && p2Guessed) {
-            // Both guessed but no winner - continue playing
-            setLastProofResult('Ninguém acertou esta rodada. Faça outro palpite!');
-            setSuccess('Jogo continua! Ninguém acertou ainda.');
-            // Reset guesses for next round
-            setGuess(null);
-          }
-        }
+        
+        // NOTE: verifyProof will be called automatically by the polling mechanism
+        // when both players have submitted their proofs.
+        // Do NOT call verifyProof here - it will fail if the other player hasn't submitted yet!
       } catch (err) {
         console.error('Submit proof error:', err);
         

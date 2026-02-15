@@ -655,7 +655,7 @@ export class PassService {
   /**
    * Submit proof for verification
    * Each player submits their game statistics: acertos, erros, permutados
-   * (The mock proof generation is done on the frontend)
+   * Requires authentication from the player
    */
   async submitProof(
     sessionId: number,
@@ -663,15 +663,12 @@ export class PassService {
     acertos: number,
     erros: number,
     permutados: number,
+    signer: Pick<contract.ClientOptions, 'signTransaction' | 'signAuthEntry'>,
     authTtlMinutes?: number
   ) {
-    const baseClient = new PassClient({
-      contractId: this.contractId,
-      networkPassphrase: NETWORK_PASSPHRASE,
-      rpcUrl: RPC_URL,
-    });
+    const client = this.createSigningClient(playerAddress, signer);
 
-    const tx = await baseClient.submit_proof({
+    const tx = await client.submit_proof({
       session_id: sessionId,
       player: playerAddress,
       acertos,
