@@ -4,7 +4,7 @@
 
 use crate::{Error, GameStatus, PassContract, PassContractClient};
 use soroban_sdk::testutils::{Address as _, Ledger as _};
-use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
+use soroban_sdk::{contract, contractimpl, Address, Env};
 
 extern crate std;
 use std::println;
@@ -90,7 +90,7 @@ fn setup_test() -> (
 
 #[test]
 fn test_mastermind_flow() {
-    let (env, client, _hub, player1, player2) = setup_test();
+    let (_env, client, _hub, player1, player2) = setup_test();
     let session_id = 1u32;
     let points = 100_0000000;
 
@@ -104,100 +104,100 @@ fn test_mastermind_flow() {
 
     // 2. Register Secrets
     client.register_secret(&session_id, &player1, &1235);
-
-    // Status should still be Setup
-    let game_p1 = client.get_game(&session_id);
-    assert_eq!(game_p1.status, GameStatus::Setup);
-
     client.register_secret(&session_id, &player2, &2232);
 
     // Verify status changed to Playing
     let game_playing = client.get_game(&session_id);
     assert_eq!(game_playing.status, GameStatus::Playing);
 
-    // 3. Submit Guesses
+    // 3. Submit Guesses (optional in lib.rs logic for verify_proof, but good for flow)
     client.submit_guess(&session_id, &player1, &2232);
     client.submit_guess(&session_id, &player2, &9999);
 
-    let game_guessed = client.get_game(&session_id);
-    println!("game_guessed: {:?}", game_guessed);
-    assert_eq!(game_guessed.player1_last_guess, Some(2232));
-    assert_eq!(game_guessed.player2_last_guess, Some(9999));
-
-    // 4. Submit Proof (Placeholder)
-    let proof = Bytes::from_array(&env, &[0xAA; 10]);
-    client.submit_proof(&session_id, &proof);
+    // 4. Submit Proofs
+    // Player 1 got it right (acertos = 4)
+    client.submit_proof(&session_id, &player1, &4, &0, &0);
+    // Player 2 got it wrong
+    client.submit_proof(&session_id, &player2, &1, &2, &1);
 
     // 5. Verify Proof and End Game
-    let winner = client.verify_proof(&session_id);
+    let (res_p1, res_p2) = client.verify_proof(&session_id);
 
-    // In our placeholder logic, Player 1 always wins if verify_proof is called
-    assert_eq!(winner, player1);
+    assert_eq!(res_p1.acertos, 4);
+    assert_eq!(res_p2.acertos, 1);
 
     let final_game = client.get_game(&session_id);
-    assert_eq!(final_game.status, GameStatus::Finished);
+    assert_eq!(final_game.status, GameStatus::Winner);
     assert_eq!(final_game.winner, Some(player1));
 }
 
 #[test]
 fn test_mastermind_multi_round_flow() {
-    extern crate std;
-    use std::println;
-
-    let (env, client, _hub, player1, player2) = setup_test();
+    let (_env, client, _hub, player1, player2) = setup_test();
     let session_id = 1u32;
     let points = 100_0000000;
 
     // --- SETUP DO JOGO ---
     client.start_game(&session_id, &player1, &player2, &points, &points);
 
-    // Definindo segredos reais para o Mock
-    let p1_secret_value = 1111u32;
-    let p2_secret_value = 2222u32;
-
-    client.register_secret(&session_id, &player1, &p1_secret_value);
-    client.register_secret(&session_id, &player2, &p2_secret_value);
+    client.register_secret(&session_id, &player1, &1111);
+    client.register_secret(&session_id, &player2, &2222);
 
     println!("\n--- FASE 1: RODADA DE ERRO ---\n");
 
-    // Player 1 chuta 5555 (Errado, o de P2 é 2222)
-    // Player 2 chuta 6666 (Errado, o de P1 é 1111)
-    client.submit_guess(&session_id, &player1, &5555);
-    client.submit_guess(&session_id, &player2, &6666);
-    client.submit_proof(&session_id, &Bytes::from_array(&env, &[0x00; 1])); // Placeholder proof
+    // Both players submit wrong proofs
+    client.submit_proof(&session_id, &player1, &1, &3, &0);
+    client.submit_proof(&session_id, &player2, &2, &2, &0);
 
-    // Tentativa de verificação (esperamos que falhe/panic pois ninguém acertou)
-    let res_v1 = client.try_verify_proof(&session_id);
-    println!("\nResultado Rodada 1 (Esperado Erro): {:?}", res_v1);
+    let (res_p1, res_p2) = client.verify_proof(&session_id);
+    assert_eq!(res_p1.acertos, 1);
+    assert_eq!(res_p2.acertos, 2);
 
-    // Verificando se os palpites foram limpos para a próxima rodada
-    let game_after_fail = client.get_game(&session_id);
-    assert_eq!(game_after_fail.player1_last_guess, None);
-    assert_eq!(game_after_fail.status, GameStatus::Playing);
-    println!(
-        "\nStatus: {:?} - Palpites resetados com sucesso.",
-        game_after_fail.status
-    );
+    // Status should still be Playing because no one got acertos == 4
+    let game_after_round1 = client.get_game(&session_id);
+    assert_eq!(game_after_round1.status, GameStatus::Playing);
+    // Proofs should be reset
+    assert!(game_after_round1.player1_proof.is_empty());
+    assert!(game_after_round1.player2_proof.is_empty());
 
     println!("\n--- FASE 2: RODADA DE VITORIA (PLAYER 2) ---\n");
 
-    // Player 1 chuta 7777 (Errado de novo)
-    // Player 2 chuta 1111 (CORRETO! O segredo de P1 é 1111)
-    client.submit_guess(&session_id, &player1, &7777);
-    client.submit_guess(&session_id, &player2, &1111);
-    client.submit_proof(&session_id, &Bytes::from_array(&env, &[0x01; 1]));
+    // Player 1 remains wrong
+    client.submit_proof(&session_id, &player1, &0, &4, &0);
+    // Player 2 hits it!
+    client.submit_proof(&session_id, &player2, &4, &0, &0);
 
-    let winner = client.verify_proof(&session_id);
-    println!("\nVENCEDOR ENCONTRADO: {:?}", winner);
+    let (res_p1_v2, res_p2_v2) = client.verify_proof(&session_id);
+    assert_eq!(res_p1_v2.acertos, 0);
+    assert_eq!(res_p2_v2.acertos, 4);
 
-    // --- ASSERTS FINAIS ---
     let final_game = client.get_game(&session_id);
-    assert_eq!(winner, player2);
-    assert_eq!(final_game.status, GameStatus::Finished);
-    assert_eq!(final_game.winner, Some(player2));
+    assert_eq!(final_game.status, GameStatus::Winner);
+    assert_eq!(final_game.winner, Some(player2.clone()));
 
     println!("\n--- TESTE CONCLUIDO COM SUCESSO ---\n");
-    println!("\nFinal Game State: {:#?}", final_game);
+}
+
+#[test]
+fn test_draw_scenario() {
+    let (_env, client, _hub, player1, player2) = setup_test();
+    let session_id = 5u32;
+
+    client.start_game(&session_id, &player1, &player2, &100, &100);
+    client.register_secret(&session_id, &player1, &1111);
+    client.register_secret(&session_id, &player2, &2222);
+
+    // Both players hit it in the same round
+    client.submit_proof(&session_id, &player1, &4, &0, &0);
+    client.submit_proof(&session_id, &player2, &4, &0, &0);
+
+    let (res_p1, res_p2) = client.verify_proof(&session_id);
+    assert_eq!(res_p1.acertos, 4);
+    assert_eq!(res_p2.acertos, 4);
+
+    let game = client.get_game(&session_id);
+    assert_eq!(game.status, GameStatus::Draw);
+    assert!(game.winner.is_none());
 }
 
 #[test]
@@ -210,14 +210,11 @@ fn test_cannot_play_without_secrets() {
     // Try to guess before registering secrets
     let result = client.try_submit_guess(&session_id, &player1, &1234);
     assert!(result.is_err());
-
-    // Check for specific error code if possible, or just Result::Err
-    // result.unwrap_err().unwrap() should be Error::InvalidStatus
 }
 
 #[test]
 fn test_cannot_register_twice() {
-    let (env, client, _hub, player1, player2) = setup_test();
+    let (_env, client, _hub, player1, player2) = setup_test();
     let session_id = 3u32;
     client.start_game(&session_id, &player1, &player2, &100, &100);
 

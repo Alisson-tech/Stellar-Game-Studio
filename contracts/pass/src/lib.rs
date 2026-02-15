@@ -10,8 +10,8 @@
 //! Game Hub contract. Games cannot be started or completed without points involvement.
 
 use soroban_sdk::{
-    contract, contractclient, contracterror, contractimpl, contracttype, vec, Address, Bytes,
-    BytesN, Env, IntoVal,
+    contract, contractclient, contracterror, contractimpl, contracttype, vec, Address, BytesN, Env,
+    IntoVal,
 };
 
 // Import GameHub contract interface
@@ -54,6 +54,24 @@ pub enum Error {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GameResult {
+    pub player: Address,
+    pub acertos: u32,    // Números corretos na posição correta
+    pub erros: u32,      // Números incorretos
+    pub permutados: u32, // Números corretos mas na posição errada
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProofData {
+    pub player: Address,
+    pub acertos: u32,
+    pub erros: u32,
+    pub permutados: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Game {
     pub player1: Address,
     pub player2: Address,
@@ -63,9 +81,12 @@ pub struct Game {
     pub player2_secret_hash: Option<u32>,
     pub player1_last_guess: Option<u32>,
     pub player2_last_guess: Option<u32>,
-    pub verification_proof: Option<Bytes>,
+    pub player1_proof: soroban_sdk::Vec<ProofData>, // Prova enviada pelo frontend
+    pub player2_proof: soroban_sdk::Vec<ProofData>, // Prova enviada pelo frontend
     pub winner: Option<Address>,
     pub status: GameStatus,
+    pub player1_result: soroban_sdk::Vec<GameResult>,
+    pub player2_result: soroban_sdk::Vec<GameResult>,
 }
 
 #[contracttype]
@@ -74,6 +95,8 @@ pub enum GameStatus {
     WaitingForPlayers,
     Setup,
     Playing,
+    Draw,   // Empatado - ambos acertaram
+    Winner, // Alguém venceu
     Finished,
 }
 
@@ -187,9 +210,12 @@ impl PassContract {
             player2_secret_hash: None,
             player1_last_guess: None,
             player2_last_guess: None,
-            verification_proof: None,
+            player1_proof: soroban_sdk::Vec::new(&env),
+            player2_proof: soroban_sdk::Vec::new(&env),
             winner: None,
             status: GameStatus::Setup,
+            player1_result: soroban_sdk::Vec::new(&env),
+            player2_result: soroban_sdk::Vec::new(&env),
         };
 
         // Store game in temporary storage with 30-day TTL
@@ -290,26 +316,25 @@ impl PassContract {
         Ok(())
     }
 
-    /// Submit a ZK proof to verify a guess or claim victory.
-    /// (Placeholder for future ZK integration)
-    pub fn submit_proof(env: Env, session_id: u32, proof: Bytes) -> Result<(), Error> {
-        let key = DataKey::Game(session_id);
-        let mut game: Game = env
-            .storage()
-            .temporary()
-            .get(&key)
-            .ok_or(Error::GameNotFound)?;
+    /// Submit proof with game statistics calculated by frontend.
+    /// Each player submits their results: acertos, erros, permutados
+    ///
+    /// # Arguments
+    /// * `session_id` - The session ID of the game
+    /// * `player` - Address of the player submitting the proof
+    /// * `acertos` - Number of correct digits in correct positions
+    /// * `erros` - Number of wrong digits
+    /// * `permutados` - Number of correct digits in wrong positions
+    pub fn submit_proof(
+        env: Env,
+        session_id: u32,
+        player: Address,
+        acertos: u32,
+        erros: u32,
+        permutados: u32,
+    ) -> Result<(), Error> {
+        player.require_auth();
 
-        // Store proof for data availability
-        game.verification_proof = Some(proof);
-
-        env.storage().temporary().set(&key, &game);
-        Ok(())
-    }
-
-    /// Verify the stored proof and determine the winner.
-    /// (Placeholder logic: Currently just marks the caller as winner if proof exists)
-    pub fn verify_proof(env: Env, session_id: u32) -> Result<Address, Error> {
         let key = DataKey::Game(session_id);
         let mut game: Game = env
             .storage()
@@ -321,65 +346,180 @@ impl PassContract {
             return Err(Error::InvalidStatus);
         }
 
-        // 1. Verificação de "DA" (Data Availability)
-        // No futuro, isso será usado para passar os bytes da Prova ZK
-        if game.verification_proof.is_none() {
-            panic!("Nenhuma prova (ou sinal de verificacao) foi submetida");
-        }
-
-        // 2. Recuperar os últimos palpites (Puros)
-        let p1_guess = game
-            .player1_last_guess
-            .expect("Player 1 nao enviou palpite");
-        let p2_guess = game
-            .player2_last_guess
-            .expect("Player 2 nao enviou palpite");
-
-        // 3. Recuperar os Segredos (Hashes)
-        let s1_hash = game.player1_secret_hash.expect("P1 secret hash ausente");
-        let s2_hash = game.player2_secret_hash.expect("P2 secret hash ausente");
-
-        // Regra de Vitória:
-        // Player 1 ganha se o palpite dele (p1_guess_hash) bater com o segredo do Player 2 (s2_hash)
-        let player1_wins = p1_guess == s2_hash;
-        let player2_wins = p2_guess == s1_hash;
-
-        let winner = if player1_wins {
-            Some(game.player1.clone())
-        } else if player2_wins {
-            Some(game.player2.clone())
-        } else {
-            None
+        let proof_data = ProofData {
+            player: player.clone(),
+            acertos,
+            erros,
+            permutados,
         };
 
-        if let Some(w) = winner {
-            // Se houve vencedor, finaliza
-            game.status = GameStatus::Finished;
-            game.winner = Some(w.clone());
-            env.storage().temporary().set(&key, &game);
+        if player == game.player1 {
+            game.player1_proof = vec![&env, proof_data];
+        } else if player == game.player2 {
+            game.player2_proof = vec![&env, proof_data];
+        } else {
+            return Err(Error::NotPlayer);
+        }
 
-            // Comunicação com o Hub
+        env.storage().temporary().set(&key, &game);
+        env.storage()
+            .temporary()
+            .extend_ttl(&key, GAME_TTL_LEDGERS, GAME_TTL_LEDGERS);
+
+        Ok(())
+    }
+
+    /// Verify proofs submitted by both players and determine the winner.
+    /// This function checks if both players have submitted their proofs,
+    /// validates the results, and updates the game status accordingly.
+    ///
+    /// Status changes:
+    /// - Playing: se ninguém acertou (ambos continuam jogando)
+    /// - Draw: se ambos acertaram (acertos == 4)
+    /// - Winner: se apenas um jogador acertou
+    ///
+    /// # Arguments
+    /// * `session_id` - The session ID of the game
+    ///
+    /// # Returns
+    /// Result containing both players' results
+    pub fn verify_proof(env: Env, session_id: u32) -> Result<(GameResult, GameResult), Error> {
+        let key = DataKey::Game(session_id);
+        let mut game: Game = env
+            .storage()
+            .temporary()
+            .get(&key)
+            .ok_or(Error::GameNotFound)?;
+
+        if game.status != GameStatus::Playing {
+            return Err(Error::InvalidStatus);
+        }
+
+        // Both players must have submitted proofs
+        let p1_proof = game.player1_proof.get(0).ok_or(Error::InvalidStatus)?;
+        let p2_proof = game.player2_proof.get(0).ok_or(Error::InvalidStatus)?;
+
+        // Check if players guessed correctly (acertos == 4 means all digits correct)
+        let p1_guessed_correctly = p1_proof.acertos == 4;
+        let p2_guessed_correctly = p2_proof.acertos == 4;
+
+        // Convert proofs to results
+        let result_p1 = GameResult {
+            player: game.player1.clone(),
+            acertos: p1_proof.acertos,
+            erros: p1_proof.erros,
+            permutados: p1_proof.permutados,
+        };
+
+        let result_p2 = GameResult {
+            player: game.player2.clone(),
+            acertos: p2_proof.acertos,
+            erros: p2_proof.erros,
+            permutados: p2_proof.permutados,
+        };
+
+        // Determine game outcome
+        match (p1_guessed_correctly, p2_guessed_correctly) {
+            (true, true) => {
+                // Both guessed correctly - Draw
+                game.status = GameStatus::Draw;
+                game.winner = None;
+            }
+            (true, false) => {
+                // Player 1 wins
+                game.status = GameStatus::Winner;
+                game.winner = Some(game.player1.clone());
+            }
+            (false, true) => {
+                // Player 2 wins
+                game.status = GameStatus::Winner;
+                game.winner = Some(game.player2.clone());
+            }
+            (false, false) => {
+                // No one guessed correctly - continue playing
+                game.status = GameStatus::Playing;
+                game.player1_proof = vec![&env];
+                game.player2_proof = vec![&env];
+                game.player1_last_guess = None;
+                game.player2_last_guess = None;
+            }
+        }
+
+        // Store results
+        game.player1_result = vec![&env, result_p1.clone()];
+        game.player2_result = vec![&env, result_p2.clone()];
+
+        // Save updated game state
+        env.storage().temporary().set(&key, &game);
+        env.storage()
+            .temporary()
+            .extend_ttl(&key, GAME_TTL_LEDGERS, GAME_TTL_LEDGERS);
+
+        // If game ended (Draw or Winner), notify GameHub
+        if game.status == GameStatus::Draw || game.status == GameStatus::Winner {
             let hub_addr: Address = env
                 .storage()
                 .instance()
                 .get(&DataKey::GameHubAddress)
                 .unwrap();
             let hub = GameHubClient::new(&env, &hub_addr);
-            hub.end_game(&session_id, &(w == game.player1));
+            let player1_won = game.winner.as_ref().map_or(false, |w| w == &game.player1);
+            hub.end_game(&session_id, &player1_won);
+        }
 
-            Ok(w)
+        Ok((result_p1, result_p2))
+    }
+
+    /// Check if the game has ended and return the winner if exists.
+    /// Returns:
+    /// - Ok(Some(winner_address)) if there's a winner
+    /// - Ok(None) if it's a draw or still playing
+    pub fn has_game_ended(env: Env, session_id: u32) -> Result<Option<Address>, Error> {
+        let key = DataKey::Game(session_id);
+        let game: Game = env
+            .storage()
+            .temporary()
+            .get(&key)
+            .ok_or(Error::GameNotFound)?;
+
+        match game.status {
+            GameStatus::Winner => Ok(game.winner),
+            GameStatus::Draw => Ok(None),
+            _ => Err(Error::InvalidStatus),
+        }
+    }
+
+    /// Get the current game status
+    pub fn get_game_status(env: Env, session_id: u32) -> Result<GameStatus, Error> {
+        let key = DataKey::Game(session_id);
+        let game: Game = env
+            .storage()
+            .temporary()
+            .get(&key)
+            .ok_or(Error::GameNotFound)?;
+
+        Ok(game.status)
+    }
+
+    /// Get the game result (statistics) for a specific player.
+    pub fn get_player_result(
+        env: Env,
+        session_id: u32,
+        player: Address,
+    ) -> Result<GameResult, Error> {
+        let key = DataKey::Game(session_id);
+        let game: Game = env
+            .storage()
+            .temporary()
+            .get(&key)
+            .ok_or(Error::GameNotFound)?;
+
+        if player == game.player1 {
+            game.player1_result.get(0).ok_or(Error::InvalidStatus)
+        } else if player == game.player2 {
+            game.player2_result.get(0).ok_or(Error::InvalidStatus)
         } else {
-            // SE NINGUÉM ACERTOU: Limpamos e SALVAMOS.
-            game.player1_last_guess = None;
-            game.player2_last_guess = None;
-            game.verification_proof = None;
-
-            // CRUCIAL: Salvar o estado sem dar panic!
-            env.storage().temporary().set(&key, &game);
-
-            // Retornamos um Erro customizado (que não seja Abort) para o teste
-            // Ou apenas definimos um vencedor fictício/vazio.
-            Ok(env.current_contract_address())
+            Err(Error::NotPlayer)
         }
     }
 
