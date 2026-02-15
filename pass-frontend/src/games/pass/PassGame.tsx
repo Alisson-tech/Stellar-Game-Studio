@@ -241,7 +241,14 @@ export function PassGame({
       setGameState(game);
 
       // Determine game phase based on state
-      if (game && game.winner !== null && game.winner !== undefined) {
+      const isTerminal = game && (
+        (game.winner !== null && game.winner !== undefined) ||
+        game.status.tag === 'Winner' ||
+        game.status.tag === 'Draw' ||
+        game.status.tag === 'Finished'
+      );
+
+      if (isTerminal) {
         // Game ended - show complete phase
         setGamePhase('complete');
       } else if (game && game.player1_secret_hash !== null && game.player1_secret_hash !== undefined &&
@@ -929,7 +936,13 @@ export function PassGame({
 
   // Auto-call verifyProof when both players have submitted their proofs
   useEffect(() => {
-    if (gamePhase !== 'guess' || !gameState || !player1ProofSubmitted || !player2ProofSubmitted) {
+    // Check if game is already in a terminal state
+    const isTerminal = gameState?.winner ||
+      gameState?.status.tag === 'Winner' ||
+      gameState?.status.tag === 'Draw' ||
+      gameState?.status.tag === 'Finished';
+
+    if (gamePhase !== 'guess' || isTerminal || !gameState || !player1ProofSubmitted || !player2ProofSubmitted) {
       return;
     }
 
@@ -937,49 +950,69 @@ export function PassGame({
       try {
         console.log('[AutoVerify] Both proofs submitted, calling verify_proof...');
         const signer = getContractSigner();
-        const result = await passService.verifyProof(sessionId, userAddress, signer);
-        console.log('[AutoVerify] Verify result:', result);
+
+        // Use a local try-catch for the contract call to handle idempotency
+        let verifyResult;
+        try {
+          verifyResult = await passService.verifyProof(sessionId, userAddress, signer);
+          console.log('[AutoVerify] Verify call successful:', verifyResult);
+        } catch (err: any) {
+          // If contract says InvalidStatus, it might be already verified
+          if (err.message?.includes('InvalidStatus')) {
+            console.log('[AutoVerify] Game already verified, fetching state...');
+          } else {
+            throw err;
+          }
+        }
 
         // Fetch updated on-chain state
         await new Promise((resolve) => setTimeout(resolve, 500));
         const updatedGame = await passService.getGame(sessionId);
         console.log('[AutoVerify] Updated game state:', updatedGame);
 
+        if (!updatedGame) return;
         setGameState(updatedGame);
 
         // Preencher feedback com resultados reais do contrato
-        if (updatedGame?.player1_result?.[0] && updatedGame?.player2_result?.[0]) {
+        // player1_result contém o resultado do palpite do Player 1 (validado pelo P2)
+        // player2_result contém o resultado do palpite do Player 2 (validado pelo P1)
+        if (updatedGame.player1_result?.[0] && updatedGame.player2_result?.[0]) {
           const p1Res = updatedGame.player1_result[0];
           const p2Res = updatedGame.player2_result[0];
+
           setProofFeedback({
             myFeedback: isPlayer1 ? p1Res : p2Res,
             opponentFeedback: isPlayer1 ? p2Res : p1Res
           });
         }
 
-        // Determine outcome
-        if (updatedGame?.winner) {
-          // Game ended with a winner
-          console.log('[AutoVerify] Game has winner:', updatedGame.winner);
-          setGamePhase('complete');
-          const isWinner = updatedGame.winner === userAddress;
-          setSuccess(isWinner ? '🎉 Você venceu!' : '💔 Você perdeu!');
-          onStandingsRefresh();
-        } else if (updatedGame?.status.tag === 'Draw') {
-          // Draw game
-          console.log('[AutoVerify] Game is a draw');
-          setGamePhase('complete');
-          setSuccess('🤝 Empate! Ambos acertaram!');
-          onStandingsRefresh();
-        } else {
-          // No one guessed correctly yet - continue playing
-          console.log('[AutoVerify] No winner yet, game continues');
+        // Reset proof states and guesses ONLY if the game continues (Status is Playing)
+        // If it's Winner or Draw, we stay in 'complete' phase.
+        if (updatedGame.status.tag === 'Playing') {
+          console.log('[AutoVerify] No winner yet, game continues for next round');
           setLastProofResult('Ninguém acertou esta rodada. Faça outro palpite!');
           setSuccess('Jogo continua! Ninguém acertou ainda.');
-          // Reset proof states and guesses for next round
+
+          // Reset states for NEXT round
           setPlayer1ProofSubmitted(false);
           setPlayer2ProofSubmitted(false);
           setGuess(null);
+        } else if (updatedGame.winner || updatedGame.status.tag === 'Winner' || updatedGame.status.tag === 'Draw') {
+          // Game ended
+          console.log('[AutoVerify] Game ended with status:', updatedGame.status.tag);
+          setGamePhase('complete');
+
+          // Reset proof states to stop the effect loop
+          setPlayer1ProofSubmitted(false);
+          setPlayer2ProofSubmitted(false);
+
+          if (updatedGame.winner) {
+            const isWinner = updatedGame.winner === userAddress;
+            setSuccess(isWinner ? '🎉 Você venceu!' : '💔 Você perdeu!');
+          } else {
+            setSuccess('🤝 Empate! Ambos acertaram!');
+          }
+          onStandingsRefresh();
         }
       } catch (err) {
         console.error('[AutoVerify] Error verifying proofs:', err);
@@ -987,16 +1020,19 @@ export function PassGame({
 
         // If the error is that both players haven't submitted yet, just wait
         if (errorMsg.includes('InvalidStatus') || errorMsg.includes('BothPlayersNotGuessed')) {
-          console.log('[AutoVerify] Players still submitting proofs, will retry...');
-          // Will retry on next effect run
+          console.log('[AutoVerify] Verification state not ready yet, will retry on next poll');
         } else {
-          console.error('[AutoVerify] Verification failed:', errorMsg);
+          console.error('[AutoVerify] Critical verification failure:', errorMsg);
         }
       }
     };
 
-    // Debounce to avoid multiple calls
-    const timeoutId = setTimeout(verifyAndComplete, 1000);
+    console.log('[AutoVerify] Condition met for verification');
+
+    // Add random jitter (0-2 seconds) to avoid both players sending the transaction at the exact same time
+    const jitter = Math.floor(Math.random() * 2000);
+    const timeoutId = setTimeout(verifyAndComplete, 1000 + jitter);
+
     return () => clearTimeout(timeoutId);
   }, [gamePhase, player1ProofSubmitted, player2ProofSubmitted, sessionId, gameState]);
 

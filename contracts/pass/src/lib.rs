@@ -391,31 +391,45 @@ impl PassContract {
             .get(&key)
             .ok_or(Error::GameNotFound)?;
 
+        // If game is not in Playing status, it might have been already verified
+        // Return existing results if they exist to handle race conditions gracefully
         if game.status != GameStatus::Playing {
+            if game.player1_result.len() > 0 && game.player2_result.len() > 0 {
+                return Ok((
+                    game.player1_result.get_unchecked(0),
+                    game.player2_result.get_unchecked(0),
+                ));
+            }
             return Err(Error::InvalidStatus);
         }
 
         // Both players must have submitted proofs
-        let p1_proof = game.player1_proof.get(0).ok_or(Error::InvalidStatus)?;
-        let p2_proof = game.player2_proof.get(0).ok_or(Error::InvalidStatus)?;
+        // Note: player1_proof is the proof submitted by player 1,
+        // which contains the verification of Player 2's guess.
+        let p1_submitted_proof = game.player1_proof.get(0).ok_or(Error::InvalidStatus)?;
+        let p2_submitted_proof = game.player2_proof.get(0).ok_or(Error::InvalidStatus)?;
 
-        // Check if players guessed correctly (acertos == 3 means all digits correct)
-        let p1_guessed_correctly = p1_proof.acertos == 3;
-        let p2_guessed_correctly = p2_proof.acertos == 3;
+        // Check who guessed correctly
+        // p1_submitted_proof contains result for Player 2
+        // p2_submitted_proof contains result for Player 1
+        let p2_guessed_correctly = p1_submitted_proof.acertos == 3;
+        let p1_guessed_correctly = p2_submitted_proof.acertos == 3;
 
         // Convert proofs to results
+        // result_p1 will be the result of Player 1's guess (verified by P2)
+        // result_p2 will be the result of Player 2's guess (verified by P1)
         let result_p1 = GameResult {
             player: game.player1.clone(),
-            acertos: p1_proof.acertos,
-            erros: p1_proof.erros,
-            permutados: p1_proof.permutados,
+            acertos: p2_submitted_proof.acertos,
+            erros: p2_submitted_proof.erros,
+            permutados: p2_submitted_proof.permutados,
         };
 
         let result_p2 = GameResult {
             player: game.player2.clone(),
-            acertos: p2_proof.acertos,
-            erros: p2_proof.erros,
-            permutados: p2_proof.permutados,
+            acertos: p1_submitted_proof.acertos,
+            erros: p1_submitted_proof.erros,
+            permutados: p1_submitted_proof.permutados,
         };
 
         // Determine game outcome
@@ -438,6 +452,7 @@ impl PassContract {
             (false, false) => {
                 // No one guessed correctly - continue playing
                 game.status = GameStatus::Playing;
+                // We keep results in playerX_result but clear proofs/guesses for next round
                 game.player1_proof = vec![&env];
                 game.player2_proof = vec![&env];
                 game.player1_last_guess = None;
@@ -445,7 +460,7 @@ impl PassContract {
             }
         }
 
-        // Store results
+        // Store results for the current round
         game.player1_result = vec![&env, result_p1.clone()];
         game.player2_result = vec![&env, result_p2.clone()];
 

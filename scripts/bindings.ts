@@ -8,6 +8,7 @@
 
 import { $ } from "bun";
 import { existsSync } from "fs";
+import path from "path";
 import { readEnvFile, getEnvValue } from "./utils/env";
 import { getWorkspaceContracts, listContractNames, selectContracts } from "./utils/contracts";
 
@@ -85,7 +86,24 @@ for (const contract of contractsToBind) {
   console.log(`Generating bindings for ${contract.packageName}...`);
   try {
     await $`stellar contract bindings typescript --contract-id ${contractId} --output-dir ${contract.bindingsOutDir} --network testnet --overwrite`;
-    console.log(`✅ ${contract.packageName} bindings generated\n`);
+    console.log(`✅ ${contract.packageName} bindings generated`);
+
+    // Automate sync to frontend if it exists
+    const frontendDir = `${contract.packageName}-frontend`;
+    const frontendBindingsPath = path.join(process.cwd(), frontendDir, 'src', 'games', contract.packageName, 'bindings.ts');
+
+    if (existsSync(path.dirname(frontendBindingsPath))) {
+      console.log(`🔄 Syncing bindings to frontend: ${frontendDir}...`);
+      const generatedIndex = path.join(contract.bindingsOutDir, 'src', 'index.ts');
+      if (existsSync(generatedIndex)) {
+        await $`cp ${generatedIndex} ${frontendBindingsPath}`;
+        console.log(`✅ Sync complete: ${frontendBindingsPath}\n`);
+      } else {
+        console.warn(`⚠️ Could not find generated index.ts at ${generatedIndex}`);
+      }
+    } else {
+      console.log(`ℹ️ No matching frontend found at ${frontendDir}, skipping sync.\n`);
+    }
   } catch (error) {
     console.error(`❌ Failed to generate ${contract.packageName} bindings:`, error);
     process.exit(1);
