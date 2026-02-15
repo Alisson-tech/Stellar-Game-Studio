@@ -27,17 +27,16 @@ import { PassDarkUI } from './components';
  *    - Player 1 faz um palpite sobre o segredo de Player 2 (submitGuess)
  *    - Player 2 faz um palpite sobre o segredo de Player 1 (submitGuess)
  *    - Quem acertar o segredo do outro primeiro vence
- *    - Transição para REVEAL quando ambos tiverem palpitado
+ *    - Quando ambos tiverem palpitado, mostrar "ENVIAR PROVA"
  * 
- * 4. REVEAL: Revelar Vencedor
- *    - Um dos jogadores chama submitProof (prova mock, placeholder para ZK)
- *    - Em seguida, chama verifyProof para determinar o vencedor
- *    - A lógica de vitória compara: player_guess == opponent_secret
- *    - Transição para COMPLETE
+ * 4. PROOF: Enviar e Verificar Provas
+ *    - Após ambos fazerem palpites, cada player clica "ENVIAR PROVA" (submitProof com mock proof)
+ *    - Após submitProof ser enviado, o player chama verifyProof para determinar vencedor
+ *    - Resultado: empate (ambos acertaram), vencedor (um acertou), ou continua na tela de palpites
  * 
- * 5. COMPLETE: Mostrar Resultado
- *    - Exibir o vencedor e os palpites/segredos
- *    - Permitir começar um novo jogo
+ * 5. RESULTADO: Exibir Status do Jogo
+ *    - Se houver vencedor/empate: Exibir com opção de novo jogo
+ *    - Se ninguém acertou: Continuar na tela de palpites com resultado (sem pular para nova rodada automática)
  */
 
 const createRandomSessionId = (): number => {
@@ -87,7 +86,7 @@ export function PassGame({
   const [quickstartLoading, setQuickstartLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [gamePhase, setGamePhase] = useState<'create' | 'setup' | 'guess' | 'reveal' | 'complete'>('create');
+  const [gamePhase, setGamePhase] = useState<'create' | 'setup' | 'guess' | 'complete'>('create');
   const [createMode, setCreateMode] = useState<'create' | 'import' | 'load'>('create');
   const [exportedAuthEntryXDR, setExportedAuthEntryXDR] = useState<string | null>(null);
   const [importAuthEntryXDR, setImportAuthEntryXDR] = useState('');
@@ -101,6 +100,9 @@ export function PassGame({
   const [xdrParsing, setXdrParsing] = useState(false);
   const [xdrParseError, setXdrParseError] = useState<string | null>(null);
   const [xdrParseSuccess, setXdrParseSuccess] = useState(false);
+  const [player1ProofSubmitted, setPlayer1ProofSubmitted] = useState(false);
+  const [player2ProofSubmitted, setPlayer2ProofSubmitted] = useState(false);
+  const [lastProofResult, setLastProofResult] = useState<string | null>(null);
 
 
   useEffect(() => {
@@ -160,6 +162,9 @@ export function PassGame({
     setXdrParsing(false);
     setXdrParseError(null);
     setXdrParseSuccess(false);
+    setPlayer1ProofSubmitted(false);
+    setPlayer2ProofSubmitted(false);
+    setLastProofResult(null);
     setPlayer1Address(userAddress);
     setPlayer1Points(DEFAULT_POINTS);
 
@@ -186,14 +191,14 @@ export function PassGame({
 
       // Determine game phase based on state
       if (game && game.winner !== null && game.winner !== undefined) {
+        // Game ended - show complete phase
         setGamePhase('complete');
-      } else if (game && game.player1_last_guess !== null && game.player1_last_guess !== undefined &&
-        game.player2_last_guess !== null && game.player2_last_guess !== undefined) {
-        setGamePhase('reveal');
       } else if (game && game.player1_secret_hash !== null && game.player1_secret_hash !== undefined &&
         game.player2_secret_hash !== null && game.player2_secret_hash !== undefined) {
+        // Both secrets registered - in guess phase
         setGamePhase('guess');
       } else {
+        // Waiting for secrets
         setGamePhase('setup');
       }
     } catch (err) {
@@ -203,7 +208,8 @@ export function PassGame({
   };
 
   useEffect(() => {
-    if (gamePhase !== 'create') {
+    if (gamePhase !== 'create' && gameState !== null) {
+      // Only poll if we're not in create phase and game state is loaded
       loadGameState();
       const interval = setInterval(loadGameState, 5000); // Poll every 5 seconds
       return () => clearInterval(interval);
@@ -763,11 +769,6 @@ export function PassGame({
           setGamePhase('complete');
           const isWinner = game.winner === userAddress;
           setSuccess(isWinner ? '🎉 You won this game!' : 'Game complete. Winner revealed.');
-        } else if (game.player1_last_guess !== null && game.player1_last_guess !== undefined &&
-          game.player2_last_guess !== null && game.player2_last_guess !== undefined) {
-          // Both players guessed, waiting for reveal
-          setGamePhase('reveal');
-          setSuccess('Game loaded! Both players have guessed. You can reveal the winner.');
         } else if (game.player1_secret_hash !== null && game.player1_secret_hash !== undefined &&
           game.player2_secret_hash !== null && game.player2_secret_hash !== undefined) {
           // Both secrets registered, in guessing phase
@@ -875,60 +876,102 @@ export function PassGame({
     return updatedGame;
   };
 
-  const handleRevealWinner = async () => {
+  const handleSubmitProof = async () => {
     await runAction(async () => {
       try {
         setLoading(true);
         setError(null);
         setSuccess(null);
+        setLastProofResult(null);
 
         const signer = getContractSigner();
         
-        // STEP 1: Create and submit mock proof (ZK placeholder)
-        console.log('[Reveal] Creating mock proof for game:', sessionId);
-        const mockProof = new Uint8Array(32);
-        crypto.getRandomValues(mockProof);
+        // STEP 1: Calculate proof statistics (acertos, erros, permutados)
+        // For now, use mock values - in real ZK proof, these would be from proof verification
+        console.log('[SubmitProof] Calculating proof statistics for game:', sessionId);
         
-        // Submit the mock proof to the contract
-        console.log('[Reveal] Submitting proof to contract...');
-        await passService.submitProof(sessionId, mockProof);
-        setSuccess('Prova enviada, verificando resultado...');
+        const playerGuess = isPlayer1 ? gameState?.player1_last_guess : gameState?.player2_last_guess;
+        const opponentSecret = isPlayer1 ? gameState?.player2_secret_hash : gameState?.player1_secret_hash;
         
-        // STEP 2: Call verify_proof to determine and reveal the winner
-        // This will compare the guesses with the opponent's secrets
-        console.log('[Reveal] Calling verify_proof to determine winner...');
-        await passService.verifyProof(sessionId, userAddress, signer);
+        // Simple logic: if guess == secret, then acertos=4 (all digits correct, simplified for demo)
+        // Otherwise use mock stats
+        let acertos = 0;
+        let erros = 0;
+        let permutados = 0;
+        
+        if (playerGuess !== null && playerGuess !== undefined && opponentSecret !== null && opponentSecret !== undefined) {
+          if (playerGuess === opponentSecret) {
+            acertos = 4; // All correct (in real Mastermind, would be actual digit matches)
+            erros = 0;
+            permutados = 0;
+          } else {
+            // Generate mock stats for wrong guess
+            acertos = Math.floor(Math.random() * 4);
+            erros = Math.floor(Math.random() * 4);
+            permutados = Math.floor(Math.random() * 2);
+          }
+        }
+        
+        console.log('[SubmitProof] Proof stats:', { acertos, erros, permutados });
+        
+        // STEP 2: Submit proof to the contract
+        console.log('[SubmitProof] Submitting proof to contract...');
+        await passService.submitProof(sessionId, userAddress, acertos, erros, permutados);
+        
+        // Mark current player as having submitted proof
+        if (isPlayer1) {
+          setPlayer1ProofSubmitted(true);
+        } else {
+          setPlayer2ProofSubmitted(true);
+        }
+        
+        setSuccess('✓ Prova enviada! Verificando resultado...');
+        
+        // STEP 3: Call verify_proof to check results
+        console.log('[SubmitProof] Calling verify_proof to determine outcome...');
+        const result = await passService.verifyProof(sessionId, userAddress, signer);
+        console.log('[SubmitProof] Verify result:', result);
 
-        // STEP 3: Wait a moment for the on-chain state to be updated
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-
-        // Fetch updated on-chain state and derive the winner from it
+        // STEP 4: Fetch updated on-chain state
+        await new Promise((resolve) => setTimeout(resolve, 500));
         const updatedGame = await passService.getGame(sessionId);
-        console.log('[Reveal] Updated game state:', updatedGame);
+        console.log('[SubmitProof] Updated game state:', updatedGame);
         
         setGameState(updatedGame);
-        setGamePhase('complete');
 
-        const isWinner = updatedGame?.winner === userAddress;
-        setSuccess(isWinner ? '🎉 Você venceu!' : 'Jogo finalizado! Resultado revelado.');
-
-        // Refresh standings immediately (without navigating away)
-        onStandingsRefresh();
-
-        // DON'T call onGameComplete() immediately - let user see the results
-        // User can click "Start New Game" when ready
+        // Determine outcome
+        if (updatedGame?.winner) {
+          // Game ended with a winner
+          console.log('[SubmitProof] Game has winner:', updatedGame.winner);
+          setGamePhase('complete');
+          const isWinner = updatedGame.winner === userAddress;
+          setSuccess(isWinner ? '🎉 Você venceu!' : '💔 Você perdeu!');
+          onStandingsRefresh();
+        } else {
+          // Draw or no one guessed correctly yet
+          console.log('[SubmitProof] No winner yet or draw');
+          // Check if both players have guessed correctly in this round
+          const p1Guessed = updatedGame?.player1_last_guess !== null && updatedGame?.player1_last_guess !== undefined;
+          const p2Guessed = updatedGame?.player2_last_guess !== null && updatedGame?.player2_last_guess !== undefined;
+          
+          if (p1Guessed && p2Guessed) {
+            // Both guessed but no winner - continue playing
+            setLastProofResult('Ninguém acertou esta rodada. Faça outro palpite!');
+            setSuccess('Jogo continua! Ninguém acertou ainda.');
+            // Reset guesses for next round
+            setGuess(null);
+          }
+        }
       } catch (err) {
-        console.error('Reveal winner error:', err);
+        console.error('Submit proof error:', err);
         
-        const errorMsg = err instanceof Error ? err.message : 'Falha ao revelar vencedor';
+        const errorMsg = err instanceof Error ? err.message : 'Falha ao enviar prova';
         
         // Provide specific error feedback
-        if (errorMsg.includes('BothPlayersNotGuessed')) {
-          setError('Ambos os jogadores não fizeram seus palpites ainda');
-        } else if (errorMsg.includes('InvalidStatus')) {
-          setError('O jogo não está na fase de revelação');
+        if (errorMsg.includes('BothPlayersNotGuessed') || errorMsg.includes('InvalidStatus')) {
+          setError('Ambos os jogadores devem fazer seus palpites antes de enviar prova');
         } else if (errorMsg.includes('Transaction failed')) {
-          setError('Falha na transação. Verifique se ambos os jogadores fizeram seus palpites.');
+          setError('Falha na transação. Verifique se ambos fizeram seus palpites.');
         } else {
           setError(errorMsg);
         }
@@ -1256,97 +1299,139 @@ export function PassGame({
                 loading={loading}
               />
             ) : (
-              <div className="pass-card text-center py-12">
-                <div className="pass-loading mb-6"></div>
-                <p className="text-gray-400">Aguardando o outro jogador...</p>
-                <p className="text-[10px] text-gray-600 mt-2 uppercase tracking-widest">Transação pendente na blockchain</p>
+              // Both players have guessed - show proof submission UI
+              <div className="space-y-6">
+                <div className="pass-card bg-yellow-500/5 border-yellow-500/30">
+                  <p className="text-xs text-yellow-400 font-bold uppercase tracking-widest mb-3">
+                    ✓ Ambos fizeram palpites
+                  </p>
+                  <p className="text-sm text-gray-300">
+                    Clique em "ENVIAR PROVA" para verificar o resultado da rodada.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="pass-card">
+                    <p className="text-[10px] text-gray-500 uppercase font-bold mb-2">Seu Palpite</p>
+                    <p className="text-2xl font-black text-blue-400">
+                      {isPlayer1 ? gameState.player1_last_guess : gameState.player2_last_guess}
+                    </p>
+                  </div>
+                  <div className="pass-card">
+                    <p className="text-[10px] text-gray-500 uppercase font-bold mb-2">Outro Jogador</p>
+                    <p className="text-2xl font-black text-purple-400">
+                      {isPlayer1 ? gameState.player2_last_guess : gameState.player1_last_guess}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleSubmitProof}
+                  disabled={isBusy}
+                  className="pass-button w-full !text-lg"
+                >
+                  {loading ? '⏳ ENVIANDO PROVA...' : '📤 ENVIAR PROVA'}
+                </button>
+
+                {lastProofResult && (
+                  <div className="pass-card bg-blue-500/5 border-blue-500/30">
+                    <p className="text-xs text-blue-400 font-bold uppercase tracking-widest mb-2">Resultado da Rodada</p>
+                    <p className="text-sm text-gray-300">{lastProofResult}</p>
+                  </div>
+                )}
               </div>
             )}
-          </div>
-        )}
-
-        {/* REVEAL PHASE */}
-        {gamePhase === 'reveal' && gameState && (
-          <div className="space-y-6">
-            <div className="pass-card bg-purple-500/5 border-purple-500/30">
-              <p className="text-xs text-purple-400 font-bold uppercase tracking-widest mb-3">
-                ⚔️ Ambos os palpites foram feitos
-              </p>
-              <p className="text-sm text-gray-300">
-                Todos os palpites foram registrados na blockchain. Revele o vencedor comparando os palpites com os segredos!
-              </p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="pass-card">
-                <p className="text-[10px] text-gray-500 uppercase font-bold mb-2">Player 1</p>
-                <p className="text-xl font-black text-blue-400">{gameState.player1_last_guess}</p>
-                <p className="text-[10px] text-gray-600 mt-1">Palpite</p>
-              </div>
-              <div className="pass-card">
-                <p className="text-[10px] text-gray-500 uppercase font-bold mb-2">Player 2</p>
-                <p className="text-xl font-black text-blue-400">{gameState.player2_last_guess}</p>
-                <p className="text-[10px] text-gray-600 mt-1">Palpite</p>
-              </div>
-            </div>
-
-            <button
-              onClick={handleRevealWinner}
-              disabled={isBusy}
-              className="pass-button w-full !text-lg"
-            >
-              {loading ? '⏳ REVELANDO...' : '🔓 REVELAR VENCEDOR'}
-            </button>
           </div>
         )}
 
         {/* COMPLETE PHASE */}
         {gamePhase === 'complete' && gameState && (
           <div className="w-full space-y-6">
-            <div className={`pass-card text-center border-2 ${gameState.winner === userAddress ? 'border-green-500/50 bg-green-500/5' : 'border-red-500/50 bg-red-500/5'}`}>
-              <div className={`text-6xl mb-4 ${gameState.winner === userAddress ? 'animate-bounce' : ''}`}>
-                {gameState.winner === userAddress ? '🏆' : '💔'}
-              </div>
-              <h2 className={`pass-win-title !text-5xl mb-2 ${gameState.winner === userAddress ? 'text-green-400' : 'text-gray-300'}`}>
-                {gameState.winner === userAddress ? 'VITÓRIA!' : 'DERROTA'}
-              </h2>
-              <p className="font-mono text-xs text-gray-500 mb-6 break-all">
-                Vencedor: {gameState.winner?.slice(0, 16)}...
-              </p>
+            {gameState.winner ? (
+              // Winner exists
+              <div className={`pass-card text-center border-2 ${gameState.winner === userAddress ? 'border-green-500/50 bg-green-500/5' : 'border-red-500/50 bg-red-500/5'}`}>
+                <div className={`text-6xl mb-4 ${gameState.winner === userAddress ? 'animate-bounce' : ''}`}>
+                  {gameState.winner === userAddress ? '🏆' : '💔'}
+                </div>
+                <h2 className={`pass-win-title !text-5xl mb-2 ${gameState.winner === userAddress ? 'text-green-400' : 'text-gray-300'}`}>
+                  {gameState.winner === userAddress ? 'VITÓRIA!' : 'DERROTA'}
+                </h2>
+                <p className="font-mono text-xs text-gray-500 mb-6 break-all">
+                  Vencedor: {gameState.winner?.slice(0, 16)}...
+                </p>
 
-              <div className="grid grid-cols-2 gap-4 pt-6 border-t border-white/10">
-                <div>
-                  <p className="text-[10px] text-gray-500 uppercase font-bold mb-2">Seu Palpite</p>
-                  <p className="text-3xl font-black text-blue-400">
-                    {isPlayer1 ? gameState.player1_last_guess : gameState.player2_last_guess}
-                  </p>
+                <div className="grid grid-cols-2 gap-4 pt-6 border-t border-white/10">
+                  <div>
+                    <p className="text-[10px] text-gray-500 uppercase font-bold mb-2">Seu Palpite</p>
+                    <p className="text-3xl font-black text-blue-400">
+                      {isPlayer1 ? gameState.player1_last_guess : gameState.player2_last_guess}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-500 uppercase font-bold mb-2">Resultado</p>
+                    <p className={`text-3xl font-black ${gameState.winner === userAddress ? 'text-green-400' : 'text-red-400'}`}>
+                      {gameState.winner === userAddress ? 'ACERTOU' : 'ERROU'}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-[10px] text-gray-500 uppercase font-bold mb-2">Resultado</p>
-                  <p className={`text-3xl font-black ${gameState.winner === userAddress ? 'text-green-400' : 'text-red-400'}`}>
-                    {gameState.winner === userAddress ? 'ACERTOU' : 'ERROU'}
-                  </p>
-                </div>
-              </div>
 
-              <div className="mt-6 pt-6 border-t border-white/10">
-                <p className="text-[10px] text-gray-600 uppercase font-bold mb-2">Comparação</p>
-                <div className="space-y-2 text-left">
-                  <p className="text-xs text-gray-400">
-                    <span className="font-mono">Player 1 palpite: {gameState.player1_last_guess}</span>
-                    <span className="text-gray-600"> vs </span>
-                    <span className="font-mono">Player 2 segredo: {gameState.player2_secret_hash}</span>
-                    {gameState.player1_last_guess === gameState.player2_secret_hash && <span className="text-green-400 ml-2">✓ ACERTOU!</span>}
-                  </p>
-                  <p className="text-xs text-gray-400">
-                    <span className="font-mono">Player 2 palpite: {gameState.player2_last_guess}</span>
-                    <span className="text-gray-600"> vs </span>
-                    <span className="font-mono">Player 1 segredo: {gameState.player1_secret_hash}</span>
-                    {gameState.player2_last_guess === gameState.player1_secret_hash && <span className="text-green-400 ml-2">✓ ACERTOU!</span>}
-                  </p>
+                <div className="mt-6 pt-6 border-t border-white/10">
+                  <p className="text-[10px] text-gray-600 uppercase font-bold mb-2">Comparação</p>
+                  <div className="space-y-2 text-left">
+                    <p className="text-xs text-gray-400">
+                      <span className="font-mono">Player 1 palpite: {gameState.player1_last_guess}</span>
+                      <span className="text-gray-600"> vs </span>
+                      <span className="font-mono">Player 2 segredo: {gameState.player2_secret_hash}</span>
+                      {gameState.player1_last_guess === gameState.player2_secret_hash && <span className="text-green-400 ml-2">✓ ACERTOU!</span>}
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      <span className="font-mono">Player 2 palpite: {gameState.player2_last_guess}</span>
+                      <span className="text-gray-600"> vs </span>
+                      <span className="font-mono">Player 1 segredo: {gameState.player1_secret_hash}</span>
+                      {gameState.player2_last_guess === gameState.player1_secret_hash && <span className="text-green-400 ml-2">✓ ACERTOU!</span>}
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              // Draw case (winner is None but status is Draw)
+              <div className="pass-card text-center border-2 border-yellow-500/50 bg-yellow-500/5">
+                <div className="text-6xl mb-4">🤝</div>
+                <h2 className="pass-win-title !text-5xl mb-2 text-yellow-400">EMPATE!</h2>
+                <p className="text-sm text-gray-300 mb-6">Ambos os jogadores acertaram no mesmo turno.</p>
+
+                <div className="grid grid-cols-2 gap-4 pt-6 border-t border-white/10">
+                  <div>
+                    <p className="text-[10px] text-gray-500 uppercase font-bold mb-2">Seu Palpite</p>
+                    <p className="text-3xl font-black text-blue-400">
+                      {isPlayer1 ? gameState.player1_last_guess : gameState.player2_last_guess}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-500 uppercase font-bold mb-2">Resultado</p>
+                    <p className="text-3xl font-black text-yellow-400">ACERTOU</p>
+                  </div>
+                </div>
+
+                <div className="mt-6 pt-6 border-t border-white/10">
+                  <p className="text-[10px] text-gray-600 uppercase font-bold mb-2">Comparação</p>
+                  <div className="space-y-2 text-left">
+                    <p className="text-xs text-gray-400">
+                      <span className="font-mono">Player 1 palpite: {gameState.player1_last_guess}</span>
+                      <span className="text-gray-600"> = </span>
+                      <span className="font-mono">Player 2 segredo: {gameState.player2_secret_hash}</span>
+                      {gameState.player1_last_guess === gameState.player2_secret_hash && <span className="text-green-400 ml-2">✓</span>}
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      <span className="font-mono">Player 2 palpite: {gameState.player2_last_guess}</span>
+                      <span className="text-gray-600"> = </span>
+                      <span className="font-mono">Player 1 segredo: {gameState.player1_secret_hash}</span>
+                      {gameState.player2_last_guess === gameState.player1_secret_hash && <span className="text-green-400 ml-2">✓</span>}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <button onClick={handleStartNewGame} className="pass-button w-full !text-lg">
               🎮 VOLTAR AO LOBBY

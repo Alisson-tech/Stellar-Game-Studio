@@ -653,12 +653,16 @@ export class PassService {
   }
 
   /**
-   * Submit proof for verification (mock proof generation)
-   * This is a placeholder - in real implementation would use ZK proofs
+   * Submit proof for verification
+   * Each player submits their game statistics: acertos, erros, permutados
+   * (The mock proof generation is done on the frontend)
    */
   async submitProof(
     sessionId: number,
-    proof: Uint8Array,
+    playerAddress: string,
+    acertos: number,
+    erros: number,
+    permutados: number,
     authTtlMinutes?: number
   ) {
     const baseClient = new PassClient({
@@ -669,7 +673,10 @@ export class PassService {
 
     const tx = await baseClient.submit_proof({
       session_id: sessionId,
-      proof: Buffer.from(proof),
+      player: playerAddress,
+      acertos,
+      erros,
+      permutados,
     }, DEFAULT_METHOD_OPTIONS);
 
     const validUntilLedgerSeq = authTtlMinutes
