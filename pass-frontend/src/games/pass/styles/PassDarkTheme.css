@@ -289,6 +289,46 @@
     color: var(--pass-neon-cyan);
 }
 
+/* Feedback Badges */
+.pass-feedback-badges {
+    display: flex;
+    justify-content: center;
+    gap: 0.75rem;
+    margin-top: 1rem;
+    animation: fadeInUp 0.4s ease-out;
+}
+
+.pass-badge {
+    padding: 0.4rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border: 1px solid transparent;
+}
+
+.pass-badge-success {
+    background: rgba(0, 255, 149, 0.1);
+    color: #00FF95;
+    border-color: rgba(0, 255, 149, 0.2);
+    box-shadow: 0 0 10px rgba(0, 255, 149, 0.1);
+}
+
+.pass-badge-warning {
+    background: rgba(255, 217, 0, 0.1);
+    color: #FFD900;
+    border-color: rgba(255, 217, 0, 0.2);
+    box-shadow: 0 0 10px rgba(255, 217, 0, 0.1);
+}
+
+.pass-badge-error {
+    background: rgba(255, 78, 78, 0.1);
+    color: #FF4E4E;
+    border-color: rgba(255, 78, 78, 0.2);
+    box-shadow: 0 0 10px rgba(255, 78, 78, 0.1);
+}
+
 /* Loading State */
 .pass-loading {
     display: inline-block;

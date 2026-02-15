@@ -399,9 +399,9 @@ impl PassContract {
         let p1_proof = game.player1_proof.get(0).ok_or(Error::InvalidStatus)?;
         let p2_proof = game.player2_proof.get(0).ok_or(Error::InvalidStatus)?;
 
-        // Check if players guessed correctly (acertos == 4 means all digits correct)
-        let p1_guessed_correctly = p1_proof.acertos == 4;
-        let p2_guessed_correctly = p2_proof.acertos == 4;
+        // Check if players guessed correctly (acertos == 3 means all digits correct)
+        let p1_guessed_correctly = p1_proof.acertos == 3;
+        let p2_guessed_correctly = p2_proof.acertos == 3;
 
         // Convert proofs to results
         let result_p1 = GameResult {

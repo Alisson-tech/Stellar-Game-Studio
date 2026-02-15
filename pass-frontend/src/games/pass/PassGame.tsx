@@ -7,6 +7,8 @@ import { getFundedSimulationSourceAddress } from '@/utils/simulationUtils';
 import { devWalletService, DevWalletService } from '@/services/devWalletService';
 import type { Game } from './bindings';
 import { PassDarkUI } from './components';
+import { useLocalGameSession } from './hooks/useLocalGameSession';
+import { calculateProof, determineRoundResult, type ProofStats } from './utils/proofCalculator';
 
 /**
  * PASS GAME - Mastermind Style Guessing Game
@@ -103,6 +105,13 @@ export function PassGame({
   const [player1ProofSubmitted, setPlayer1ProofSubmitted] = useState(false);
   const [player2ProofSubmitted, setPlayer2ProofSubmitted] = useState(false);
   const [lastProofResult, setLastProofResult] = useState<string | null>(null);
+  const [proofFeedback, setProofFeedback] = useState<{
+    myFeedback: ProofStats | null;
+    opponentFeedback: ProofStats | null;
+  } | null>(null);
+
+  // Hook para gerenciar secrets locais de AMBOS os players
+  const { getMySecret, saveMySecret, getOtherPlayerSecret, clearAllSecrets } = useLocalGameSession(sessionId);
 
 
   useEffect(() => {
@@ -114,6 +123,29 @@ export function PassGame({
       setImportPlayer2Points(DEFAULT_POINTS);
     }
   }, [createMode, importPlayer2Points]);
+
+  /**
+   * Quando o userAddress muda (alternando carteiras),
+   * recalcular o feedback para mostrar o resultado CORRETO para o novo player
+   */
+  useEffect(() => {
+    if (!gameState || !proofFeedback) return;
+
+    // Se mudou de player (userAddress diferente), reagrupar feedback
+    console.log(`[FeedbackRecalc] Player trocado: ${userAddress.slice(0, 8)}..., recarregando feedback`);
+
+    // Reconfigurar feedback para o novo player
+    if (gameState.player1_result?.[0] && gameState.player2_result?.[0]) {
+      const p1Res = gameState.player1_result[0];
+      const p2Res = gameState.player2_result[0];
+      const newIsPlayer1 = gameState.player1 === userAddress;
+
+      setProofFeedback({
+        myFeedback: newIsPlayer1 ? p1Res : p2Res,
+        opponentFeedback: newIsPlayer1 ? p2Res : p1Res
+      });
+    }
+  }, [userAddress]);
 
   const POINTS_DECIMALS = 7;
   const isBusy = loading || quickstartLoading;
@@ -133,6 +165,25 @@ export function PassGame({
     } finally {
       actionLock.current = false;
     }
+  };
+
+  const isPlayer1 = gameState && gameState.player1 === userAddress;
+  const isPlayer2 = gameState && gameState.player2 === userAddress;
+  const hasGuessed = isPlayer1 ? gameState?.player1_last_guess !== null && gameState?.player1_last_guess !== undefined :
+    isPlayer2 ? gameState?.player2_last_guess !== null && gameState?.player2_last_guess !== undefined : false;
+
+  /**
+   * Calcula o feedback DINÂMICO para o player ATUAL
+   * Cada player vê feedback diferente baseado em seu secret local
+   * 
+   * Player 1 vê: feedback de seu palpite vs secret do player 2 (usando secret local do p1)
+   * Player 2 vê: feedback de seu palpite vs secret do player 1 (usando secret local do p2)
+   */
+  const getPlayerFeedback = (): ProofStats | null => {
+    if (!gameState || !proofFeedback) return null;
+
+    // Retorna o feedback do PLAYER ATUAL (myFeedback foi setado corretamente no verifyProof)
+    return proofFeedback.myFeedback;
   };
 
   const handleStartNewGame = () => {
@@ -167,7 +218,7 @@ export function PassGame({
     setLastProofResult(null);
     setPlayer1Address(userAddress);
     setPlayer1Points(DEFAULT_POINTS);
-
+    setProofFeedback(null);
   };
 
   const parsePoints = (value: string): bigint | null => {
@@ -893,8 +944,18 @@ export function PassGame({
         await new Promise((resolve) => setTimeout(resolve, 500));
         const updatedGame = await passService.getGame(sessionId);
         console.log('[AutoVerify] Updated game state:', updatedGame);
-        
+
         setGameState(updatedGame);
+
+        // Preencher feedback com resultados reais do contrato
+        if (updatedGame?.player1_result?.[0] && updatedGame?.player2_result?.[0]) {
+          const p1Res = updatedGame.player1_result[0];
+          const p2Res = updatedGame.player2_result[0];
+          setProofFeedback({
+            myFeedback: isPlayer1 ? p1Res : p2Res,
+            opponentFeedback: isPlayer1 ? p2Res : p1Res
+          });
+        }
 
         // Determine outcome
         if (updatedGame?.winner) {
@@ -923,7 +984,7 @@ export function PassGame({
       } catch (err) {
         console.error('[AutoVerify] Error verifying proofs:', err);
         const errorMsg = err instanceof Error ? err.message : 'Erro ao verificar provas';
-        
+
         // If the error is that both players haven't submitted yet, just wait
         if (errorMsg.includes('InvalidStatus') || errorMsg.includes('BothPlayersNotGuessed')) {
           console.log('[AutoVerify] Players still submitting proofs, will retry...');
@@ -948,64 +1009,62 @@ export function PassGame({
         setLastProofResult(null);
 
         const signer = getContractSigner();
-        
-        // STEP 1: Calculate proof statistics (acertos, erros, permutados)
-        // For now, use mock values - in real ZK proof, these would be from proof verification
-        console.log('[SubmitProof] Calculating proof statistics for game:', sessionId);
-        
-        const playerGuess = isPlayer1 ? gameState?.player1_last_guess : gameState?.player2_last_guess;
-        const opponentSecret = isPlayer1 ? gameState?.player2_secret_hash : gameState?.player1_secret_hash;
-        
-        // Simple logic: if guess == secret, then acertos=4 (all digits correct, simplified for demo)
-        // Otherwise use mock stats
-        let acertos = 0;
-        let erros = 0;
-        let permutados = 0;
-        
-        if (playerGuess !== null && playerGuess !== undefined && opponentSecret !== null && opponentSecret !== undefined) {
-          if (playerGuess === opponentSecret) {
-            acertos = 4; // All correct (in real Mastermind, would be actual digit matches)
-            erros = 0;
-            permutados = 0;
-          } else {
-            // Generate mock stats for wrong guess
-            acertos = Math.floor(Math.random() * 4);
-            erros = Math.floor(Math.random() * 4);
-            permutados = Math.floor(Math.random() * 2);
-          }
+
+        // STEP 1: Recuperar secret local do PLAYER ATUAL
+        console.log('[SubmitProof] Calculando prova para jogo:', sessionId);
+
+        const mySecret = getMySecret(userAddress);
+        if (!mySecret) {
+          throw new Error('Segredo local não encontrado. Você precisa registrar seu segredo primeiro.');
         }
-        
-        console.log('[SubmitProof] Proof stats:', { acertos, erros, permutados });
-        
-        // STEP 2: Submit proof to the contract (requires authentication)
-        console.log('[SubmitProof] Submitting proof to contract...');
-        await passService.submitProof(sessionId, userAddress, acertos, erros, permutados, signer);
-        
+
+        const opponentGuess = isPlayer1 ? gameState?.player2_last_guess : gameState?.player1_last_guess;
+
+        if (opponentGuess === null || opponentGuess === undefined) {
+          throw new Error('Aguardando palpite do oponente para calcular prova.');
+        }
+
+        // STEP 2: Calcular estatísticas REAIS de prova usando SECRET LOCAL
+        const proofStats = calculateProof(mySecret, opponentGuess);
+        console.log('[SubmitProof] Proof stats calculadas:', proofStats);
+        console.log(`[SubmitProof] Player: ${userAddress.slice(0, 8)}..., Secret local: ${mySecret}, Palpite oponente: ${opponentGuess}`);
+
+        // STEP 3: Enviar prova ao contrato (stats calculadas)
+        console.log('[SubmitProof] Enviando prova ao contrato...');
+        await passService.submitProof(
+          sessionId,
+          userAddress,
+          proofStats.acertos,
+          proofStats.erros,
+          proofStats.permutados,
+          signer
+        );
+
         // Mark current player as having submitted proof
         if (isPlayer1) {
           setPlayer1ProofSubmitted(true);
         } else {
           setPlayer2ProofSubmitted(true);
         }
-        
+
         setSuccess('✓ Prova enviada! Aguardando a prova do outro jogador...');
-        
+
         // STEP 3: Fetch updated on-chain state
         console.log('[SubmitProof] Fetching updated game state...');
         await new Promise((resolve) => setTimeout(resolve, 500));
         const updatedGame = await passService.getGame(sessionId);
         console.log('[SubmitProof] Updated game state:', updatedGame);
-        
+
         setGameState(updatedGame);
-        
+
         // NOTE: verifyProof will be called automatically by the polling mechanism
         // when both players have submitted their proofs.
         // Do NOT call verifyProof here - it will fail if the other player hasn't submitted yet!
       } catch (err) {
         console.error('Submit proof error:', err);
-        
+
         const errorMsg = err instanceof Error ? err.message : 'Falha ao enviar prova';
-        
+
         // Provide specific error feedback
         if (errorMsg.includes('BothPlayersNotGuessed') || errorMsg.includes('InvalidStatus')) {
           setError('Ambos os jogadores devem fazer seus palpites antes de enviar prova');
@@ -1020,10 +1079,6 @@ export function PassGame({
     });
   };
 
-  const isPlayer1 = gameState && gameState.player1 === userAddress;
-  const isPlayer2 = gameState && gameState.player2 === userAddress;
-  const hasGuessed = isPlayer1 ? gameState?.player1_last_guess !== null && gameState?.player1_last_guess !== undefined :
-    isPlayer2 ? gameState?.player2_last_guess !== null && gameState?.player2_last_guess !== undefined : false;
 
   const player1Guess = gameState?.player1_last_guess;
   const player2Guess = gameState?.player2_last_guess;
@@ -1058,30 +1113,35 @@ export function PassGame({
         if (gamePhase === 'setup') {
           // SETUP PHASE: Register secret
           console.log('[Setup] Registering secret:', numValue, 'for player:', userAddress);
-          
+
           await passService.registerSecret(sessionId, userAddress, numValue, signer);
+
+          // NOVO: Salvar secret localmente para ESTE player/carteira
+          saveMySecret(userAddress, numValue);
+          console.log(`[Setup] Secret armazenado localmente para ${userAddress.slice(0, 8)}...`);
+
           setSuccess(`Segredo registrado com sucesso! ✓`);
-          
+
           // Load updated game state to check if both secrets are registered
           await loadGameState();
-          
+
         } else if (gamePhase === 'guess') {
           // GUESS PHASE: Submit guess
           console.log('[Guess] Submitting guess:', numValue, 'for player:', userAddress);
-          
+
           await passService.submitGuess(sessionId, userAddress, numValue, signer);
           setSuccess(`Palpite enviado com sucesso! ✓`);
-          
+
           // Load updated game state to check if both players have guessed
           await loadGameState();
-          
+
           // If both players have guessed, transition to reveal phase
           // The polling in the useEffect will handle this
         }
       } catch (err) {
         console.error('Action error:', err);
         const errorMsg = err instanceof Error ? err.message : 'Falha ao executar ação';
-        
+
         // Provide specific error feedback
         if (errorMsg.includes('already registered') || errorMsg.includes('already guessed')) {
           setError('Você já completou esta ação neste jogo');
@@ -1279,7 +1339,7 @@ export function PassGame({
                 {gamePhase === 'setup' ? '🔐 Fase de Configuração' : '🎯 Fase de Palpites'}
               </p>
               <p className="text-sm text-gray-300">
-                {gamePhase === 'setup' 
+                {gamePhase === 'setup'
                   ? 'Ambos os jogadores devem registrar seus segredos para iniciar o jogo'
                   : 'Ambos os jogadores devem fazer seus palpites. Quem acertar o segredo do outro primeiro vence!'
                 }
@@ -1333,9 +1393,10 @@ export function PassGame({
 
             {!hasGuessed ? (
               <PassDarkUI
-                gamePhase={gamePhase}
+                gamePhase={gamePhase === 'setup' ? 'setup' : 'guess'}
                 onSubmit={handleDarkUISubmit}
                 loading={loading}
+                feedback={proofFeedback?.myFeedback}
               />
             ) : (
               // Both players have guessed - show proof submission UI

@@ -6,6 +6,11 @@ interface PassDarkUIProps {
     onSubmit: (value: string) => void;
     loading?: boolean;
     winner?: string | null;
+    feedback?: {
+        acertos: number;
+        erros: number;
+        permutados: number;
+    } | null;
 }
 
 /**
@@ -13,7 +18,7 @@ interface PassDarkUIProps {
  * Minimalist design with blockchain/cryptography aesthetic
  * Features: Dark mode, glassmorphism, neon accents, premium animations
  */
-export function PassDarkUI({ gamePhase, onSubmit, loading = false, winner = null }: PassDarkUIProps) {
+export function PassDarkUI({ gamePhase, onSubmit, loading = false, winner = null, feedback = null }: PassDarkUIProps) {
     const [inputValue, setInputValue] = useState('');
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -58,6 +63,13 @@ export function PassDarkUI({ gamePhase, onSubmit, loading = false, winner = null
                         {/* Status/Guidance */}
                         <div className="pass-status">
                             <p className="pass-status-text">{getGuidanceText()}</p>
+                            {gamePhase === 'guess' && feedback && (
+                                <div className="pass-feedback-badges">
+                                    <span className="pass-badge pass-badge-success">{feedback.acertos} Corretos</span>
+                                    <span className="pass-badge pass-badge-warning">{feedback.permutados} Permutados</span>
+                                    <span className="pass-badge pass-badge-error">{feedback.erros} Errados</span>
+                                </div>
+                            )}
                         </div>
 
                         {/* Input Form */}
