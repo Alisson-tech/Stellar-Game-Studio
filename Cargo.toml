@@ -10,7 +10,8 @@ members = [
 ]
 
 [workspace.dependencies]
-soroban-sdk = "25.0.2"
+soroban-sdk = { git = "https://github.com/stellar/rs-soroban-sdk", rev = "acffbbd45be6a0a551146eebfc268d6f95078246" }
+ultrahonk_soroban_verifier = { git = "https://github.com/yugocabrio/rs-soroban-ultrahonk", branch = "main" }
 
 [profile.release]
 opt-level = "z"
@@ -21,3 +22,6 @@ debug-assertions = false
 panic = "abort"
 codegen-units = 1
 lto = true
+
+[patch.crates-io]
+soroban-sdk = { git = "https://github.com/stellar/rs-soroban-sdk", rev = "acffbbd45be6a0a551146eebfc268d6f95078246" }

@@ -660,6 +660,7 @@ export class PassService {
   async submitProof(
     sessionId: number,
     playerAddress: string,
+    proof: Bytes,
     acertos: number,
     erros: number,
     permutados: number,
@@ -674,6 +675,7 @@ export class PassService {
       acertos,
       erros,
       permutados,
+      proof,
     }, DEFAULT_METHOD_OPTIONS);
 
     const validUntilLedgerSeq = authTtlMinutes

@@ -5,7 +5,7 @@
     "": {
       "name": "stellar-game-studio",
       "dependencies": {
-        "@noir-lang/backend_barretenberg": "^0.36.0",
+        "@noir-lang/backend_barretenberg": "^0.33.0",
         "@noir-lang/noir_js": "^1.0.0-beta.18",
         "@stellar/stellar-sdk": "^14.5.0",
       },
@@ -15,7 +15,7 @@
     },
   },
   "packages": {
-    "@aztec/bb.js": ["@aztec/bb.js@0.58.0", "", { "dependencies": { "comlink": "^4.4.1", "commander": "^10.0.1", "debug": "^4.3.4", "tslib": "^2.4.0" }, "bin": { "bb.js": "dest/node/main.js" } }, "sha512-ls9NNAkcTTOQ4TjqQ7oHb6MlM28KfXiXEN7e6YntPmmG4m1I0FqZ1uY0tFkpem1iXIORVyHVY5GqSadqhH1gvA=="],
+    "@aztec/bb.js": ["@aztec/bb.js@0.47.1", "", { "dependencies": { "comlink": "^4.4.1", "commander": "^10.0.1", "debug": "^4.3.4", "tslib": "^2.4.0" }, "bin": { "bb.js": "dest/node/main.js" } }, "sha512-3SmRF+suvNZkheCWGU7jH/reEHXkAjMo7q5u/xoLFL0Rn/1HZQN0W6o6Sd3QUoopCwVWQIJ66YwalaRaslP41Q=="],
 
     "@noble/curves": ["@noble/curves@1.9.7", "", { "dependencies": { "@noble/hashes": "1.8.0" } }, "sha512-gbKGcRUYIjA3/zCCNaWDciTMFI0dCkvou3TL8Zmy5Nc7sJ47a0jtOeZoTaMxkuqRo9cRhjOdZJXegxYE5FN/xw=="],
 
@@ -23,13 +23,13 @@
 
     "@noir-lang/acvm_js": ["@noir-lang/acvm_js@1.0.0-beta.18", "", {}, "sha512-QQXAaowxSzGKk+Ua7ofc2jcpvUTYSxmDuF5SzwwOFMue9+ccp9QcqOkjyyIZWjtapcenV7YCXrzcBjvEt7N8Nw=="],
 
-    "@noir-lang/backend_barretenberg": ["@noir-lang/backend_barretenberg@0.36.0", "", { "dependencies": { "@aztec/bb.js": "0.58.0", "@noir-lang/types": "0.36.0", "fflate": "^0.8.0" } }, "sha512-TShUJfMZskV8LOKY22jbofKnPAhMxBgUIi2FxcoNJ9y52i56GibrF0iuse3atEMWc8LnOE0ci69wsqZ2yYP8iw=="],
+    "@noir-lang/backend_barretenberg": ["@noir-lang/backend_barretenberg@0.33.0", "", { "dependencies": { "@aztec/bb.js": "0.47.1", "@noir-lang/types": "0.33.0", "fflate": "^0.8.0" } }, "sha512-9uxgUAzM1ERqGbeNTsCNPfADttDzzXBfaHOQkzMKKtDk2S+3u68gDrlZmC/MJKkf1ZzFG1Ly95XpbpPFW993ig=="],
 
     "@noir-lang/noir_js": ["@noir-lang/noir_js@1.0.0-beta.18", "", { "dependencies": { "@noir-lang/acvm_js": "1.0.0-beta.18", "@noir-lang/noirc_abi": "1.0.0-beta.18", "@noir-lang/types": "1.0.0-beta.18", "pako": "^2.1.0" } }, "sha512-J0VSw13U9SQpejh1sWNEjuKxjl/uJblOmWJMdlpYqCetth9oBAnKv8+IMk0bZlkrjDp22Yf8vMDkf+Qb8KBZ2Q=="],
 
     "@noir-lang/noirc_abi": ["@noir-lang/noirc_abi@1.0.0-beta.18", "", { "dependencies": { "@noir-lang/types": "1.0.0-beta.18" } }, "sha512-ZLobgQwGbxBpR4iMQpCpYQS4EaM25Fl31rVkrcteQIwcz5kAknH1Yc5FJYICCxzO1HEFj6coAzF3FXO/Ic4p4Q=="],
 
-    "@noir-lang/types": ["@noir-lang/types@0.36.0", "", {}, "sha512-3A/yJtnbTsn0o3T/D3YPs5b0vPOxYwos6Y5Ko6NhZsE6V31rYPv2a2NYmbfJRYuriwwzFbdE8+ui3UiV5BmvWw=="],
+    "@noir-lang/types": ["@noir-lang/types@0.33.0", "", {}, "sha512-iXtn+L7Fy1Oj7XUKLg3Jpam213QDQtmt/5izNnMaESz87+3vNNeAKR2ssVOB6qkjkuOH8p7cShSruGCPACiaAA=="],
 
     "@stellar/js-xdr": ["@stellar/js-xdr@3.1.2", "", {}, "sha512-VVolPL5goVEIsvuGqDc5uiKxV03lzfWdvYg1KikvwheDmTBO68CKDji3bAZ/kppZrx5iTA8z3Ld5yuytcvhvOQ=="],
 

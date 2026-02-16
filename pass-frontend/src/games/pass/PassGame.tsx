@@ -1091,6 +1091,8 @@ export function PassGame({
         // STEP 2.5: GERAR PROVA ZK (Noir)
         // Isso vai verificar se o segredo local + salt batem com o hash registrado (se registrado com Poseidon)
         // E se as stats (acertos/erros) estão corretas.
+        let proofToSubmit: Buffer | null = null;
+
         try {
           console.log('[SubmitProof] Gerando prova ZK no navegador...');
           setSuccess('Gerando prova Zero-Knowledge... (isso pode levar alguns segundos)');
@@ -1108,8 +1110,10 @@ export function PassGame({
             proofStats
           );
 
+          proofToSubmit = Buffer.from(proof);
+
           console.log('[SubmitProof] PROVA ZK GERADA COM SUCESSO!');
-          console.log('[SubmitProof] Proof (hex):', Buffer.from(proof).toString('hex'));
+          console.log('[SubmitProof] Proof (hex):', proofToSubmit.toString('hex'));
           console.log('[SubmitProof] Public Inputs:', publicInputs);
 
           // TODO: No futuro, enviar proof e publicInputs para o contrato
@@ -1131,6 +1135,7 @@ export function PassGame({
         await passService.submitProof(
           sessionId,
           userAddress,
+          proofToSubmit,
           proofStats.acertos,
           proofStats.erros,
           proofStats.permutados,

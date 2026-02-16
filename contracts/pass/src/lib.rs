@@ -10,9 +10,12 @@
 //! Game Hub contract. Games cannot be started or completed without points involvement.
 
 use soroban_sdk::{
-    contract, contractclient, contracterror, contractimpl, contracttype, vec, Address, BytesN, Env,
-    IntoVal,
+    contract, contractclient, contracterror, contractimpl, contracttype, vec, Address, Bytes,
+    BytesN, Env, IntoVal, Vec,
 };
+
+// Import code for ZK verification
+use ultrahonk_soroban_verifier::UltraHonkVerifier;
 
 // Import GameHub contract interface
 // This allows us to call into the GameHub contract
@@ -68,6 +71,7 @@ pub struct ProofData {
     pub acertos: u32,
     pub erros: u32,
     pub permutados: u32,
+    pub proof: Bytes,
 }
 
 #[contracttype]
@@ -106,6 +110,7 @@ pub enum DataKey {
     Game(u32),
     GameHubAddress,
     Admin,
+    VerificationKey,
 }
 
 // ============================================================================
@@ -132,12 +137,12 @@ impl PassContract {
     /// # Arguments
     /// * `admin` - Admin address (can upgrade contract)
     /// * `game_hub` - Address of the GameHub contract
-    pub fn __constructor(env: Env, admin: Address, game_hub: Address) {
-        // Store admin and GameHub address
+    pub fn initialize(env: Env, admin: Address, game_hub: Address) {
+        if env.storage().instance().has(&DataKey::Admin) {
+            panic!("Already initialized");
+        }
         env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage()
-            .instance()
-            .set(&DataKey::GameHubAddress, &game_hub);
+        env.storage().instance().set(&DataKey::GameHubAddress, &game_hub);
     }
 
     /// Start a new game between two players with points.
@@ -332,6 +337,7 @@ impl PassContract {
         acertos: u32,
         erros: u32,
         permutados: u32,
+        proof: Bytes,
     ) -> Result<(), Error> {
         player.require_auth();
 
@@ -351,6 +357,7 @@ impl PassContract {
             acertos,
             erros,
             permutados,
+            proof,
         };
 
         if player == game.player1 {
@@ -383,6 +390,23 @@ impl PassContract {
     ///
     /// # Returns
     /// Result containing both players' results
+    /// Verify proofs submitted by both players and determine the winner.
+    /// This function checks if both players have submitted their proofs,
+    /// validates the results using ZK verification (mocked), and updates the game status accordingly.
+    ///
+    /// Fraud Detection:
+    /// If a player submits an invalid proof (the ZK verification fails), the opponent automatically wins.
+    ///
+    /// Status changes:
+    /// - Playing: se ninguém acertou (ambos continuam jogando)
+    /// - Draw: se ambos acertaram (acertos == 3)
+    /// - Winner: se apenas um jogador acertou ou houve fraude
+    ///
+    /// # Arguments
+    /// * `session_id` - The session ID of the game
+    ///
+    /// # Returns
+    /// Result containing both players' results
     pub fn verify_proof(env: Env, session_id: u32) -> Result<(GameResult, GameResult), Error> {
         let key = DataKey::Game(session_id);
         let mut game: Game = env
@@ -403,15 +427,121 @@ impl PassContract {
             return Err(Error::InvalidStatus);
         }
 
+        // Both players must have made a guess in the current round
+        let p1_guess = game
+            .player1_last_guess
+            .ok_or(Error::BothPlayersNotGuessed)?;
+        let p2_guess = game
+            .player2_last_guess
+            .ok_or(Error::BothPlayersNotGuessed)?;
+
         // Both players must have submitted proofs
-        // Note: player1_proof is the proof submitted by player 1,
-        // which contains the verification of Player 2's guess.
         let p1_submitted_proof = game.player1_proof.get(0).ok_or(Error::InvalidStatus)?;
         let p2_submitted_proof = game.player2_proof.get(0).ok_or(Error::InvalidStatus)?;
 
-        // Check who guessed correctly
-        // p1_submitted_proof contains result for Player 2
-        // p2_submitted_proof contains result for Player 1
+        // Retrieve secret hashes
+        let p1_secret_hash = game
+            .player1_secret_hash
+            .clone()
+            .ok_or(Error::InvalidStatus)?;
+        let p2_secret_hash = game
+            .player2_secret_hash
+            .clone()
+            .ok_or(Error::InvalidStatus)?;
+
+        // --- VERIFICATION LOGIC ---
+
+        // Verify Player 1's Proof (Prove P1's secret against P2's guess)
+        // Public Inputs: [secret_hash (P1), guess (P2), acertos, erros, permutados, salt (if public?)]
+        // Note: The circuit likely verifies: Hash(secret + salt) == stored_hash AND stats correct for (secret, guess)
+        // For now, we use a mock function.
+        let p1_proof_valid =
+            Self::verify_zk_proof(&env, &p1_submitted_proof, &p1_secret_hash, p2_guess);
+
+        // Verify Player 2's Proof (Prove P2's secret against P1's guess)
+        let p2_proof_valid =
+            Self::verify_zk_proof(&env, &p2_submitted_proof, &p2_secret_hash, p1_guess);
+
+        // --- FRAUD HANDLING ---
+
+        if !p1_proof_valid && !p2_proof_valid {
+            // Double Fraud? Technical Draw or handle specific rules.
+            // For simplicity: Draw but game ends.
+            game.status = GameStatus::Draw; // Or a specific fraud status
+            game.winner = None;
+
+            // Save & Return empty/error results
+            env.storage().temporary().set(&key, &game);
+            return Err(Error::InvalidStatus); // Or custom error
+        }
+
+        if !p1_proof_valid {
+            // Player 1 submitted invalid proof -> Player 2 wins
+            game.status = GameStatus::Winner;
+            game.winner = Some(game.player2.clone());
+
+            env.storage().temporary().set(&key, &game);
+
+            // Notify Hub
+            let hub_addr: Address = env
+                .storage()
+                .instance()
+                .get(&DataKey::GameHubAddress)
+                .unwrap();
+            let hub = GameHubClient::new(&env, &hub_addr);
+            hub.end_game(&session_id, &false); // Winner is P2 (not P1)
+
+            // Return empty/partial results as game ended
+            return Ok((
+                GameResult {
+                    player: game.player1.clone(),
+                    acertos: 0,
+                    erros: 0,
+                    permutados: 0,
+                },
+                GameResult {
+                    player: game.player2.clone(),
+                    acertos: 0,
+                    erros: 0,
+                    permutados: 0,
+                },
+            ));
+        }
+
+        if !p2_proof_valid {
+            // Player 2 submitted invalid proof -> Player 1 wins
+            game.status = GameStatus::Winner;
+            game.winner = Some(game.player1.clone());
+
+            env.storage().temporary().set(&key, &game);
+
+            // Notify Hub
+            let hub_addr: Address = env
+                .storage()
+                .instance()
+                .get(&DataKey::GameHubAddress)
+                .unwrap();
+            let hub = GameHubClient::new(&env, &hub_addr);
+            hub.end_game(&session_id, &true); // Winner is P1
+
+            return Ok((
+                GameResult {
+                    player: game.player1.clone(),
+                    acertos: 0,
+                    erros: 0,
+                    permutados: 0,
+                },
+                GameResult {
+                    player: game.player2.clone(),
+                    acertos: 0,
+                    erros: 0,
+                    permutados: 0,
+                },
+            ));
+        }
+
+        // --- IF BOTH VALID -> DETERMINE WINNER ---
+
         let p2_guessed_correctly = p1_submitted_proof.acertos == 3;
         let p1_guessed_correctly = p2_submitted_proof.acertos == 3;
 
@@ -483,6 +613,69 @@ impl PassContract {
         }
 
         Ok((result_p1, result_p2))
+    }
+
+    /// Helper to verify ZK proof.
+    ///
+    /// TODO: Replace this with actual `rs-soroban-ultrahonk` verification.
+    /// Currently returns TRUE to allow game progression.
+    fn verify_zk_proof(
+        env: &Env,
+        proof_data: &ProofData,
+        secret_hash: &BytesN<32>,
+        opponent_guess: u32,
+    ) -> bool {
+        let vk: Bytes = env
+            .storage()
+            .instance()
+            .get(&DataKey::VerificationKey)
+            .expect("VK not set");
+
+        let mut public_inputs_bytes = Bytes::new(env);
+
+        // --- ORDEM DOS INPUTS PÚBLICOS (IGUAL AO NOIR) ---
+
+        // 1. Guess: [u32; 3]
+        // Precisamos quebrar o palpite (ex: 123) em dígitos individuais
+        let d1 = (opponent_guess / 100) % 10;
+        let d2 = (opponent_guess / 10) % 10;
+        let d3 = opponent_guess % 10;
+
+        public_inputs_bytes.append(&Self::u32_to_bytes32(env, d1).into());
+        public_inputs_bytes.append(&Self::u32_to_bytes32(env, d2).into());
+        public_inputs_bytes.append(&Self::u32_to_bytes32(env, d3).into());
+
+        // 2. Hash: Field
+        public_inputs_bytes.append(&secret_hash.clone().into());
+
+        // 3. Acertos: u32
+        public_inputs_bytes.append(&Self::u32_to_bytes32(env, proof_data.acertos).into());
+
+        // 4. Permutados: u32
+        public_inputs_bytes.append(&Self::u32_to_bytes32(env, proof_data.permutados).into());
+
+        // 5. Erros: u32
+        public_inputs_bytes.append(&Self::u32_to_bytes32(env, proof_data.erros).into());
+
+        // --- VERIFICAÇÃO ---
+        match UltraHonkVerifier::new(env, &vk) {
+            Ok(verifier) => verifier.verify(&proof_data.proof, &public_inputs_bytes).is_ok(),
+            Err(_) => false,
+        }
+    }
+
+    /// Helper para converter u32 em representação de 32 bytes (BE) para o Noir Field
+    fn u32_to_bytes32(env: &Env, value: u32) -> BytesN<32> {
+        let mut bytes = [0u8; 32];
+        let v_bytes = value.to_be_bytes(); // Retorna [u8; 4]
+        
+        // Alinha o u32 no final dos 32 bytes
+        bytes[28] = v_bytes[0];
+        bytes[29] = v_bytes[1];
+        bytes[30] = v_bytes[2];
+        bytes[31] = v_bytes[3];
+        
+        BytesN::from_array(env, &bytes)
     }
 
     /// Check if the game has ended and return the winner if exists.
@@ -609,6 +802,21 @@ impl PassContract {
         env.storage()
             .instance()
             .set(&DataKey::GameHubAddress, &new_hub);
+    }
+
+    /// Set the Verification Key for ZK proofs
+    ///
+    /// # Arguments
+    /// * `vk` - The verification key as a vector of bytes
+    pub fn set_verification_key(env: Env, vk: Bytes) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("Admin not set");
+        admin.require_auth();
+
+        env.storage().instance().set(&DataKey::VerificationKey, &vk);
     }
 
     /// Update the contract WASM hash (upgrade contract)

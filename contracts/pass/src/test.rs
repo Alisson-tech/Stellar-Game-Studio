@@ -4,7 +4,7 @@
 
 use crate::{Error, GameStatus, PassContract, PassContractClient};
 use soroban_sdk::testutils::{Address as _, Ledger as _};
-use soroban_sdk::{contract, contractimpl, Address, Env};
+use soroban_sdk::{contract, contractimpl, vec, Address, Bytes, BytesN, Env};
 
 extern crate std;
 use std::println;
@@ -81,6 +81,9 @@ fn setup_test() -> (
     let player1 = Address::generate(&env);
     let player2 = Address::generate(&env);
 
+    // Set a dummy Verification Key
+    client.set_verification_key(&Bytes::new(&env));
+
     (env, client, game_hub, player1, player2)
 }
 
@@ -90,7 +93,7 @@ fn setup_test() -> (
 
 #[test]
 fn test_mastermind_flow() {
-    let (_env, client, _hub, player1, player2) = setup_test();
+    let (env, client, _hub, player1, player2) = setup_test();
     let session_id = 1u32;
     let points = 100_0000000;
 
@@ -103,8 +106,8 @@ fn test_mastermind_flow() {
     assert!(game.player1_secret_hash.is_none());
 
     // 2. Register Secrets
-    client.register_secret(&session_id, &player1, &1235);
-    client.register_secret(&session_id, &player2, &2232);
+    client.register_secret(&session_id, &player1, &BytesN::from_array(&env, &[1u8; 32]));
+    client.register_secret(&session_id, &player2, &BytesN::from_array(&env, &[2u8; 32]));
 
     // Verify status changed to Playing
     let game_playing = client.get_game(&session_id);
@@ -116,9 +119,9 @@ fn test_mastermind_flow() {
 
     // 4. Submit Proofs
     // Player 1 got it right (acertos = 4)
-    client.submit_proof(&session_id, &player1, &4, &0, &0);
+    client.submit_proof(&session_id, &player1, &4, &0, &0, &Bytes::new(&env));
     // Player 2 got it wrong
-    client.submit_proof(&session_id, &player2, &1, &2, &1);
+    client.submit_proof(&session_id, &player2, &1, &2, &1, &Bytes::new(&env));
 
     // 5. Verify Proof and End Game
     let (res_p1, res_p2) = client.verify_proof(&session_id);
@@ -133,21 +136,21 @@ fn test_mastermind_flow() {
 
 #[test]
 fn test_mastermind_multi_round_flow() {
-    let (_env, client, _hub, player1, player2) = setup_test();
+    let (env, client, _hub, player1, player2) = setup_test();
     let session_id = 1u32;
     let points = 100_0000000;
 
     // --- SETUP DO JOGO ---
     client.start_game(&session_id, &player1, &player2, &points, &points);
 
-    client.register_secret(&session_id, &player1, &1111);
-    client.register_secret(&session_id, &player2, &2222);
+    client.register_secret(&session_id, &player1, &BytesN::from_array(&env, &[1u8; 32]));
+    client.register_secret(&session_id, &player2, &BytesN::from_array(&env, &[2u8; 32]));
 
     println!("\n--- FASE 1: RODADA DE ERRO ---\n");
 
     // Both players submit wrong proofs
-    client.submit_proof(&session_id, &player1, &1, &3, &0);
-    client.submit_proof(&session_id, &player2, &2, &2, &0);
+    client.submit_proof(&session_id, &player1, &1, &3, &0, &Bytes::new(&env));
+    client.submit_proof(&session_id, &player2, &2, &2, &0, &Bytes::new(&env));
 
     let (res_p1, res_p2) = client.verify_proof(&session_id);
     assert_eq!(res_p1.acertos, 1);
@@ -163,9 +166,9 @@ fn test_mastermind_multi_round_flow() {
     println!("\n--- FASE 2: RODADA DE VITORIA (PLAYER 2) ---\n");
 
     // Player 1 remains wrong
-    client.submit_proof(&session_id, &player1, &0, &4, &0);
+    client.submit_proof(&session_id, &player1, &0, &4, &0, &Bytes::new(&env));
     // Player 2 hits it!
-    client.submit_proof(&session_id, &player2, &4, &0, &0);
+    client.submit_proof(&session_id, &player2, &4, &0, &0, &Bytes::new(&env));
 
     let (res_p1_v2, res_p2_v2) = client.verify_proof(&session_id);
     assert_eq!(res_p1_v2.acertos, 0);
@@ -180,16 +183,16 @@ fn test_mastermind_multi_round_flow() {
 
 #[test]
 fn test_draw_scenario() {
-    let (_env, client, _hub, player1, player2) = setup_test();
+    let (env, client, _hub, player1, player2) = setup_test();
     let session_id = 5u32;
 
     client.start_game(&session_id, &player1, &player2, &100, &100);
-    client.register_secret(&session_id, &player1, &1111);
-    client.register_secret(&session_id, &player2, &2222);
+    client.register_secret(&session_id, &player1, &BytesN::from_array(&env, &[1u8; 32]));
+    client.register_secret(&session_id, &player2, &BytesN::from_array(&env, &[2u8; 32]));
 
     // Both players hit it in the same round
-    client.submit_proof(&session_id, &player1, &4, &0, &0);
-    client.submit_proof(&session_id, &player2, &4, &0, &0);
+    client.submit_proof(&session_id, &player1, &4, &0, &0, &Bytes::new(&env));
+    client.submit_proof(&session_id, &player2, &4, &0, &0, &Bytes::new(&env));
 
     let (res_p1, res_p2) = client.verify_proof(&session_id);
     assert_eq!(res_p1.acertos, 4);
@@ -202,7 +205,7 @@ fn test_draw_scenario() {
 
 #[test]
 fn test_cannot_play_without_secrets() {
-    let (_env, client, _hub, player1, player2) = setup_test();
+    let (env, client, _hub, player1, player2) = setup_test();
     let session_id = 2u32;
 
     client.start_game(&session_id, &player1, &player2, &100, &100);
@@ -214,14 +217,15 @@ fn test_cannot_play_without_secrets() {
 
 #[test]
 fn test_cannot_register_twice() {
-    let (_env, client, _hub, player1, player2) = setup_test();
+    let (env, client, _hub, player1, player2) = setup_test();
     let session_id = 3u32;
     client.start_game(&session_id, &player1, &player2, &100, &100);
 
-    client.register_secret(&session_id, &player1, &1239);
+    client.register_secret(&session_id, &player1, &BytesN::from_array(&env, &[1u8; 32]));
 
     // Try register again
-    let result = client.try_register_secret(&session_id, &player1, &1239);
+    let result =
+        client.try_register_secret(&session_id, &player1, &BytesN::from_array(&env, &[1u8; 32]));
 
     match result {
         Err(Ok(error)) => assert_eq!(error, Error::SecretAlreadyRegistered),

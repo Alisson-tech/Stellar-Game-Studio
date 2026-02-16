@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { readEnvFile, getEnvValue } from './utils/env';
 import { getWorkspaceContracts, listContractNames, selectContracts } from "./utils/contracts";
 
+
 type StellarKeypair = {
   publicKey(): string;
   secret(): string;
@@ -70,15 +71,24 @@ async function testnetAccountExists(address: string): Promise<boolean> {
 }
 
 async function ensureTestnetFunded(address: string): Promise<void> {
-  if (await testnetAccountExists(address)) return;
+  if (await testnetAccountExists(address)) {
+    // Even if Horizon sees it, Soroban RPC might not.
+    // We'll do a small extra wait to be safe.
+    await new Promise((r) => setTimeout(r, 2000));
+    return;
+  }
   console.log(`💰 Funding ${address} via friendbot...`);
   const fundRes = await fetch(`https://friendbot.stellar.org?addr=${address}`, { method: 'GET' });
   if (!fundRes.ok) {
     throw new Error(`Friendbot funding failed (${fundRes.status}) for ${address}`);
   }
-  for (let attempt = 0; attempt < 5; attempt++) {
-    await new Promise((r) => setTimeout(r, 750));
-    if (await testnetAccountExists(address)) return;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    if (await testnetAccountExists(address)) {
+      // Robust wait for RPC synchronization
+      await new Promise((r) => setTimeout(r, 5000));
+      return;
+    }
   }
   throw new Error(`Funded ${address} but it still doesn't appear on Horizon yet`);
 }
@@ -138,6 +148,9 @@ const shouldEnsureMock = deployMockRequested || needsMock;
 const missingWasm: string[] = [];
 for (const contract of contracts) {
   if (contract.isMockHub) continue;
+  if (contract.packageName === "pass") {
+     const path = join(process.cwd(), "pass-frontend/src/games/pass/circuit.json");
+  }
   if (!await Bun.file(contract.wasmPath).exists()) missingWasm.push(contract.wasmPath);
 }
 if (missingWasm.length > 0) {
@@ -276,8 +289,18 @@ if (shouldEnsureMock) {
     console.warn(`⚠️  ${mock.packageName} not found on testnet (archived or reset). Deploying a new one...`);
     console.log(`Deploying ${mock.packageName}...`);
     try {
-      const result =
-        await $`stellar contract deploy --wasm ${mock.wasmPath} --source-account ${adminSecret} --network ${NETWORK}`.text();
+      // Retry logic for deployment to handle "Account not found" or lag
+      let result = "";
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          result = await $`stellar contract deploy --wasm ${mock.wasmPath} --source-account ${adminSecret} --network ${NETWORK}`.text();
+          break;
+        } catch (err) {
+          if (attempt === 2) throw err;
+          console.warn(`  ⚠️  Deployment attempt ${attempt + 1} failed, retrying in 5s...`);
+          await new Promise(r => setTimeout(r, 5000));
+        }
+      }
       mockGameHubId = result.trim();
       deployed[mock.packageName] = mockGameHubId;
       console.log(`✅ ${mock.packageName} deployed: ${mockGameHubId}\n`);
@@ -293,23 +316,76 @@ for (const contract of contracts) {
 
   console.log(`Deploying ${contract.packageName}...`);
   try {
-    console.log("  Installing WASM...");
-    const installResult =
-      await $`stellar contract install --wasm ${contract.wasmPath} --source-account ${adminSecret} --network ${NETWORK}`.text();
-    const wasmHash = installResult.trim();
+    console.log("  Uploading WASM...");
+    let wasmHash = "";
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const uploadResult = await $`stellar contract upload --wasm ${contract.wasmPath} --source-account ${adminSecret} --network ${NETWORK}`.text();
+        wasmHash = uploadResult.trim();
+        break;
+      } catch (err) {
+        if (attempt === 2) throw err;
+        console.warn(`  ⚠️  Upload attempt ${attempt + 1} failed, retrying in 5s...`);
+        await new Promise(r => setTimeout(r, 5000));
+      }
+    }
     console.log(`  WASM hash: ${wasmHash}`);
 
-    console.log("  Deploying and initializing...");
-    const deployResult =
-      await $`stellar contract deploy --wasm-hash ${wasmHash} --source-account ${adminSecret} --network ${NETWORK} -- --admin ${adminAddress} --game-hub ${mockGameHubId}`.text();
-    const contractId = deployResult.trim();
-    deployed[contract.packageName] = contractId;
-    console.log(`✅ ${contract.packageName} deployed: ${contractId}\n`);
+    let contractId = "";
+    console.log("  Deploying...");
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        // 1. DEPLOY LIMPO (Sem argumentos de construtor no CLI)
+        const deployResult = await $`stellar contract deploy --wasm-hash ${wasmHash} --source-account ${adminSecret} --network ${NETWORK}`.text();
+        contractId = deployResult.trim();
+        deployed[contract.packageName] = contractId;
+        console.log(`✅ ${contract.packageName} deployed: ${contractId}`);
+
+        // 2. INICIALIZAÇÃO MANUAL (Apenas para o contrato "pass")
+        if (contract.packageName === "pass") {
+          console.log("  🎬 Executando initialize...");
+          await $`stellar contract invoke \
+            --id ${contractId} \
+            --source-account ${adminSecret} \
+            --network ${NETWORK} \
+            -- initialize \
+            --admin ${adminAddress} \
+            --game-hub ${mockGameHubId}`;
+
+          // 3. CONFIGURAÇÃO DA VK
+          const circuitPath = join(process.cwd(), "pass-frontend/src/games/pass/circuit.json");
+          if (existsSync(circuitPath)) {
+            const circuitData = await Bun.file(circuitPath).json();
+            const vkBase64 = circuitData.verification_key || circuitData.vk;
+
+            if (vkBase64) {
+              console.log("  📤 Enviando VK...");
+              const vkHex = Buffer.from(vkBase64, 'base64').toString('hex');
+              await $`stellar contract invoke \
+                --id ${contractId} \
+                --source-account ${adminSecret} \
+                --network ${NETWORK} \
+                -- set_verification_key \
+                --vk ${vkHex}`;
+              console.log("  ✅ VK configurada com sucesso!");
+            }
+          }
+        }
+        break; // Sucesso em todo o processo, sai do loop de tentativas de deploy
+      } catch (err) {
+        if (attempt === 2) throw err;
+        console.warn(`  ⚠️  Deploy/Init attempt ${attempt + 1} failed, retrying in 5s...`);
+        console.error(err);
+        await new Promise(r => setTimeout(r, 5000));
+      }
+    }
   } catch (error) {
     console.error(`❌ Failed to deploy ${contract.packageName}:`, error);
     process.exit(1);
   }
 }
+  
+  
 
 console.log("🎉 Deployment complete!\n");
 console.log("Contract IDs:");
