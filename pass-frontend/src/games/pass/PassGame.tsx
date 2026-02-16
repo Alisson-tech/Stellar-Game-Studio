@@ -41,6 +41,8 @@ import { calculateProof, determineRoundResult, type ProofStats } from './utils/p
  *    - Se ninguém acertou: Continuar na tela de palpites com resultado (sem pular para nova rodada automática)
  */
 
+const SALT = "minha-salt";
+
 const createRandomSessionId = (): number => {
   if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
     let value = 0;
@@ -1036,6 +1038,16 @@ export function PassGame({
     return () => clearTimeout(timeoutId);
   }, [gamePhase, player1ProofSubmitted, player2ProofSubmitted, sessionId, gameState]);
 
+  const hashNumber = async (numValue: number): Promise<Buffer> => {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(numValue.toString() + SALT);
+
+    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+
+    // converte ArrayBuffer direto para Buffer
+    return Buffer.from(new Uint8Array(hashBuffer));
+  };
+
   const handleSubmitProof = async () => {
     await runAction(async () => {
       try {
@@ -1150,7 +1162,9 @@ export function PassGame({
           // SETUP PHASE: Register secret
           console.log('[Setup] Registering secret:', numValue, 'for player:', userAddress);
 
-          await passService.registerSecret(sessionId, userAddress, numValue, signer);
+          const hashedValue = await hashNumber(numValue);
+
+          await passService.registerSecret(sessionId, userAddress, hashedValue, signer);
 
           // NOVO: Salvar secret localmente para ESTE player/carteira
           saveMySecret(userAddress, numValue);

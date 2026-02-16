@@ -77,8 +77,8 @@ pub struct Game {
     pub player2: Address,
     pub player1_points: i128,
     pub player2_points: i128,
-    pub player1_secret_hash: Option<u32>,
-    pub player2_secret_hash: Option<u32>,
+    pub player1_secret_hash: Option<BytesN<32>>,
+    pub player2_secret_hash: Option<BytesN<32>>,
     pub player1_last_guess: Option<u32>,
     pub player2_last_guess: Option<u32>,
     pub player1_proof: soroban_sdk::Vec<ProofData>, // Prova enviada pelo frontend
@@ -241,7 +241,7 @@ impl PassContract {
         env: Env,
         session_id: u32,
         player: Address,
-        secret_hash: u32,
+        secret_hash: BytesN<32>,
     ) -> Result<(), Error> {
         player.require_auth();
 

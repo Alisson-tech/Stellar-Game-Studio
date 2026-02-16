@@ -582,7 +582,7 @@ export class PassService {
   async registerSecret(
     sessionId: number,
     playerAddress: string,
-    secretHash: number,
+    secretHash: Buffer,
     signer: Pick<contract.ClientOptions, 'signTransaction' | 'signAuthEntry'>,
     authTtlMinutes?: number
   ) {
@@ -754,7 +754,7 @@ export class PassService {
       console.error('Transaction response:', JSON.stringify(transactionResponse, null, 2));
 
       const diagnosticEvents = transactionResponse?.diagnosticEventsXdr ||
-                              transactionResponse?.diagnostic_events || [];
+        transactionResponse?.diagnostic_events || [];
 
       // Look for error events in diagnostic events
       for (const event of diagnosticEvents) {
