@@ -1114,8 +1114,14 @@ export function PassGame({
 
           // TODO: No futuro, enviar proof e publicInputs para o contrato
           // await passService.submitProof(..., proof, publicInputs, ...)
-        } catch (zkError) {
+        } catch (zkError: any) {
           console.error('[SubmitProof] Falha ao gerar prova ZK:', zkError);
+
+          // Se for erro de front end malicioso, interromper e avisar o usuário
+          if (zkError.message && zkError.message.includes("Front end malicioso")) {
+            throw zkError;
+          }
+
           console.warn('[SubmitProof] Continuando com envio sem prova ZK (modo compatibilidade)...');
           // Não bloqueamos o envio por enquanto, pois o contrato ainda não exige a prova
         }

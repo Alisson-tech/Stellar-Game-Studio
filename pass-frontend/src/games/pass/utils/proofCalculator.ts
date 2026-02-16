@@ -175,8 +175,11 @@ export async function proveTurn(
             proof: proofData.proof,
             publicInputs: proofData.publicInputs
         };
-    } catch (err) {
+    } catch (err: any) {
         console.error("Erro ao gerar prova:", err);
+        if (err.message && err.message.includes("Cannot satisfy constraint")) {
+            throw new Error("Front end malicioso, corrija para continuar");
+        }
         throw err;
     }
 }
