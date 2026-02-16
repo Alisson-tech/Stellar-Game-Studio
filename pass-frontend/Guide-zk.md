@@ -4,6 +4,40 @@ Este tutorial explicativo e prático cobre desde a instalação até a implement
 
 ---
 
+## 0. Planejamento de Arquitetura e Estrutura
+
+### Qual arquitetura usar?
+A arquitetura recomendada é **Noir + Barretenberg + Soroban (Ultrahonk)**. 
+- **Noir**: Linguagem para escrever o circuito ZK (main.nr).
+- **Barretenberg**: Backend que gera e verifica as provas matemáticas (usando o protocolo Ultrahonk).
+- **Soroban**: Camada on-chain onde a prova é verificada de forma irrevogável.
+
+Essa escolha garante:
+1.  **Privacidade**: O segredo e o salt nunca saem do navegador do jogador.
+2.  **Segurança**: O oponente não pode mentir sobre o resultado (acertos/erros) sem invalidar a prova.
+3.  **Performance**: Provas Ultrahonk são rápidas para gerar no frontend e baratas para verificar on-chain.
+
+### Onde criar o circuito ZK?
+Crie a estrutura do Noir dentro da pasta do contrato do jogo para manter a coesão:
+`contracts/pass/circuits/`
+  ├── `Nargo.toml`
+  └── `src/main.nr`
+
+### Processo de Implementação
+
+#### No Frontend (`PassGame.tsx`)
+1.  **Geração da Prova**: Quando o jogador clica em "ENVIAR PROVA", o frontend recupera o `secret` e `salt` locais.
+2.  **Inputs**: Prepara os inputs: `secret`, `salt` (privados) e `guess`, `hash`, `stats` (públicos).
+3.  **Compilação**: O frontend usa o artefato JSON do circuito Noir para gerar a prova via `noir_js`.
+4.  **Envio**: A prova (`Bytes`) e os inputs públicos são enviados para a função `submit_proof` do contrato.
+
+#### No Contrato (`lib.rs`)
+1.  **Armazenamento**: O contrato armazena a prova enviada temporariamente.
+2.  **Chamada de Verificação**: Na função `verify_proof`, o contrato utiliza um `UltrahonkVerifierClient` para chamar o contrato Verificador (previamente deployado).
+3.  **Validação**: Se `verifier.verify(proof, public_inputs)` for verdadeiro, o contrato processa o resultado da rodada.
+
+---
+
 ## 1. Planejamento e Conceitos
 
 Para implementar ZK com sucesso, precisamos entender os três pilares:
@@ -22,13 +56,32 @@ Necessário para compilar o circuito e gerar chaves de verificação.
 curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
 noirup
 
-# Barretenberg (Backend de prova)
+# Barretenberg (Backend de prova) - Opcional para dev local com noir_js, mas útil para debug
 curl -L https://raw.githubusercontent.com/AztecProtocol/aztec-packages/master/barretenberg/cpp/installation/install | bash
 ```
 
 ### B. Dependências do Frontend
 ```bash
-npm install @noir-lang/noir_js @noir-lang/backend_barretenberg
+cd pass-frontend
+npm install @noir-lang/noir_js @noir-lang/backend_barretenberg poseidon-lite
+```
+
+### C. Compilação do Circuito
+1. Navegue até a pasta do contrato:
+```bash
+cd contracts/pass
+```
+
+2. Verifique e compile o circuito:
+```bash
+nargo check
+nargo compile
+```
+
+3. Copie o artefato compilado para o frontend:
+```bash
+# Supondo que você esteja na raiz do projeto (Stellar-Game-Studio)
+cp contracts/pass/target/pass_circuit.json pass-frontend/src/games/pass/circuit.json
 ```
 
 ### C. Soroban & Rust
@@ -58,6 +111,7 @@ fn main(
     pub erros: u32                // Público
 ) {
     // 1. Verificar Compromisso (Secret + Salt)
+    // Usamos Poseidon para eficiência em ZK
     let computed_hash = std::hash::poseidon::bn254::hash_4([
         secret[0] as Field, 
         secret[1] as Field, 

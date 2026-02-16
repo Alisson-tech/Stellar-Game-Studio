@@ -1,0 +1,7 @@
+[package]
+name = "pass_circuit"
+type = "bin"
+authors = ["User"]
+compiler_version = ">=0.33.0"
+
+[dependencies]

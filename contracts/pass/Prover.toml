@@ -1,0 +1,7 @@
+acertos = ""
+erros = ""
+guess = ["", "", ""]
+hash = ""
+permutados = ""
+salt = ""
+secret = ["", "", ""]

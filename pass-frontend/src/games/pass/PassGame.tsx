@@ -8,7 +8,9 @@ import { devWalletService, DevWalletService } from '@/services/devWalletService'
 import type { Game } from './bindings';
 import { PassDarkUI } from './components';
 import { useLocalGameSession } from './hooks/useLocalGameSession';
-import { calculateProof, determineRoundResult, type ProofStats } from './utils/proofCalculator';
+import { calculateProof, calculateHash, determineRoundResult, proveTurn, type ProofStats } from './utils/proofCalculator';
+// import poseidon from 'poseidon-lite'; // Removed: Using Barretenberg Pedersen instead
+
 
 /**
  * PASS GAME - Mastermind Style Guessing Game
@@ -1038,14 +1040,23 @@ export function PassGame({
     return () => clearTimeout(timeoutId);
   }, [gamePhase, player1ProofSubmitted, player2ProofSubmitted, sessionId, gameState]);
 
+  /* 
+   * Converte string para BigInt para uso como Salt no Poseidon 
+   */
+  const stringToBigInt = (str: string): bigint => {
+    let result = 0n;
+    for (let i = 0; i < str.length; i++) {
+      result = (result << 8n) + BigInt(str.charCodeAt(i));
+    }
+    return result;
+  };
+
   const hashNumber = async (numValue: number): Promise<Buffer> => {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(numValue.toString() + SALT);
+    // Para ZK, precisamos usar Pedersen (assim como no circuito).
+    // O circuito usa: pedersen_hash([d1, d2, d3, salt])
 
-    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-
-    // converte ArrayBuffer direto para Buffer
-    return Buffer.from(new Uint8Array(hashBuffer));
+    // 3. Convert to Buffer
+    return await calculateHash(numValue, SALT);
   };
 
   const handleSubmitProof = async () => {
@@ -1076,6 +1087,38 @@ export function PassGame({
         const proofStats = calculateProof(mySecret, opponentGuess);
         console.log('[SubmitProof] Proof stats calculadas:', proofStats);
         console.log(`[SubmitProof] Player: ${userAddress.slice(0, 8)}..., Secret local: ${mySecret}, Palpite oponente: ${opponentGuess}`);
+
+        // STEP 2.5: GERAR PROVA ZK (Noir)
+        // Isso vai verificar se o segredo local + salt batem com o hash registrado (se registrado com Poseidon)
+        // E se as stats (acertos/erros) estão corretas.
+        try {
+          console.log('[SubmitProof] Gerando prova ZK no navegador...');
+          setSuccess('Gerando prova Zero-Knowledge... (isso pode levar alguns segundos)');
+
+          // NOTA: O hash registrado no contrato deve ser o Poseidon hash para isso funcionar.
+          // Se o jogo começou com SHA-256 (versão antiga), a geração da prova vai falhar na asserção do hash.
+          const saltBn = stringToBigInt(SALT);
+          // O circuito espera o salt como Field? string 'minha-salt' nao é field direto. 
+          // Vamos passar o mesmo BigInt convertido para string ou hex que usamos no hashNumber
+
+          const { proof, publicInputs } = await proveTurn(
+            mySecret,
+            saltBn.toString(),
+            opponentGuess,
+            proofStats
+          );
+
+          console.log('[SubmitProof] PROVA ZK GERADA COM SUCESSO!');
+          console.log('[SubmitProof] Proof (hex):', Buffer.from(proof).toString('hex'));
+          console.log('[SubmitProof] Public Inputs:', publicInputs);
+
+          // TODO: No futuro, enviar proof e publicInputs para o contrato
+          // await passService.submitProof(..., proof, publicInputs, ...)
+        } catch (zkError) {
+          console.error('[SubmitProof] Falha ao gerar prova ZK:', zkError);
+          console.warn('[SubmitProof] Continuando com envio sem prova ZK (modo compatibilidade)...');
+          // Não bloqueamos o envio por enquanto, pois o contrato ainda não exige a prova
+        }
 
         // STEP 3: Enviar prova ao contrato (stats calculadas)
         console.log('[SubmitProof] Enviando prova ao contrato...');
