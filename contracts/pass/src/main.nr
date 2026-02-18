@@ -6,12 +6,12 @@ global K: u32 = 10; // Digits 0 to 9
 fn main(
     secret: [u32; 3],             // Private
     salt: Field,                  // Private
-    guess: [u32; 3],              // Private input, returned as public
-    hash: Field,                  // Private input, returned as public
-    acertos: u32,                 // Private input, returned as public
-    permutados: u32,              // Private input, returned as public
-    erros: u32                    // Private input, returned as public
-) -> pub ([u32; 3], Field, u32, u32, u32) {
+    guess: pub [u32; 3],              // Private input, returned as public
+    hash: pub Field,                  // Private input, returned as public
+    acertos: pub u32,                 // Private input, returned as public
+    permutados: pub u32,              // Private input, returned as public
+    erros: pub u32                    // Private input, returned as public
+) {
     // 1. Verify Commitment (Secret + Salt)
     // Using Pedersen because Poseidon was not found in std::hash
     let computed_hash = std::hash::pedersen_hash([
@@ -51,7 +51,4 @@ fn main(
     assert(count_acertos == acertos);
     assert(count_permutados == permutados);
     assert(count_erros == erros);
-
-    // Return public inputs to expose them
-    (guess, hash, acertos, permutados, erros)
 }

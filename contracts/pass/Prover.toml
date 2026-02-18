@@ -1,7 +1,10 @@
-acertos = ""
-erros = ""
-guess = ["", "", ""]
-hash = ""
-permutados = ""
-salt = ""
-secret = ["", "", ""]
+# Private Inputs
+secret = ["4", "5", "6"]
+salt = "123"
+
+# Public Inputs (Devem ser o resultado real do cálculo acima)
+guess = ["9", "8", "4"]
+hash = "0x2c1d0112886cb37c670583828d19abee0d321be8d2ebf0adce5aaa68061ee7c5"
+acertos = 0
+permutados = 1
+erros = 2

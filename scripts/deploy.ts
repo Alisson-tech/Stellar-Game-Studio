@@ -148,7 +148,7 @@ for (const contract of contracts) {
 
   // Para o contrato "pass", verificar se a VK foi gerada
   if (contract.packageName === "pass") {
-    const vkPath = join(process.cwd(), "contracts/pass/target/vk.bin/vk");
+    const vkPath = join(process.cwd(), "contracts/pass/target/vk/vk");
     if (!existsSync(vkPath)) {
       console.error("❌ VK não encontrada em contracts/pass/target/vk.bin/vk");
       console.error("  Gere a VK com o Docker antes de fazer o deploy:");
@@ -354,7 +354,7 @@ for (const contract of contracts) {
           console.log("  ✅ Initialize concluído!");
 
           // 2. Enviar VK via arquivo temporário (evita limite de tamanho de argumento no shell)
-          const vkPath = join(process.cwd(), "contracts/pass/target/vk.bin/vk");
+          const vkPath = join(process.cwd(), "contracts/pass/target/vk/vk");
           console.log("  📤 Lendo VK...");
 
           const vkBuffer = await Bun.file(vkPath).arrayBuffer();

@@ -632,69 +632,80 @@ impl PassContract {
     ) -> bool {
         let vk: Bytes = env.storage().instance().get(&DataKey::VerificationKey).expect("VK not set");
 
-        // 1. Separar dígitos
+        // 1. Decomposição do chute
         let d1 = (opponent_guess / 100) % 10;
         let d2 = (opponent_guess / 10) % 10;
         let d3 = opponent_guess % 10;
 
-        // 2. Criar um vetor fixo para garantir que não haja overhead de redimensionamento
-        // 7 inputs * 32 bytes = 224 bytes
+        // 2. Montagem dos Public Inputs (7 campos de 32 bytes = 224 bytes)
         let mut full_inputs = [0u8; 224];
 
-        // Auxiliar para preencher o array
-        fn write_u32_at(dest: &mut [u8], offset: usize, val: u32) {
-            let bytes = val.to_be_bytes(); // Noir espera Big Endian
-            dest[offset + 28] = bytes[0];
-            dest[offset + 29] = bytes[1];
-            dest[offset + 30] = bytes[2];
-            dest[offset + 31] = bytes[3];
+        // Palpite (Índices 0, 1, 2)
+        let guess_digits = [d1, d2, d3];
+        for i in 0..3 {
+            let offset = i * 32;
+            let b = guess_digits[i].to_be_bytes();
+            full_inputs[offset + 28] = b[0];
+            full_inputs[offset + 29] = b[1];
+            full_inputs[offset + 30] = b[2];
+            full_inputs[offset + 31] = b[3];
         }
 
-        // Preencher Guess (Inputs 0, 1, 2)
-        write_u32_at(&mut full_inputs, 0, d1);
-        write_u32_at(&mut full_inputs, 32, d2);
-        write_u32_at(&mut full_inputs, 64, d3);
-
-        // Preencher Hash (Input 3) - Copiar os 32 bytes do BytesN
+        // Hash do Segredo (Índice 3 - Offset 96)
         let hash_bytes = secret_hash.to_array();
         for i in 0..32 {
             full_inputs[96 + i] = hash_bytes[i];
         }
 
-        // Preencher Stats (Inputs 4, 5, 6)
-        write_u32_at(&mut full_inputs, 128, proof_data.acertos);
-        write_u32_at(&mut full_inputs, 160, proof_data.permutados);
-        write_u32_at(&mut full_inputs, 192, proof_data.erros);
+        // Resultados: acertos, permutados, erros (Índices 4, 5, 6)
+        let results = [proof_data.acertos, proof_data.permutados, proof_data.erros];
+        for i in 0..3 {
+            let offset = (4 + i) * 32;
+            let b = results[i].to_be_bytes();
+            full_inputs[offset + 28] = b[0];
+            full_inputs[offset + 29] = b[1];
+            full_inputs[offset + 30] = b[2];
+            full_inputs[offset + 31] = b[3];
+        }
 
-        // Converter para o tipo Bytes do Soroban
         let public_inputs_bytes = Bytes::from_array(env, &full_inputs);
 
-        // DEBUG: O tamanho TEM que ser 224
-        // env.storage().temporary().set(&Symbol::new(&env, "debug_len"), &public_inputs_bytes.len());
-
+        // --- DEBUG STORAGE ---
         // --- DEBUG STORAGE START ---
+        env.storage().temporary().set(&Symbol::new(&env, "dbg_d1"), &d1);
+        env.storage().temporary().set(&Symbol::new(&env, "dbg_d2"), &d2);
+        env.storage().temporary().set(&Symbol::new(&env, "dbg_d3"), &d3);
+
+        // 2. Verificar o Hash que está sendo usado (tem que ser o do dono do segredo)
+        env.storage().temporary().set(&Symbol::new(&env, "dbg_hash_used"), secret_hash);
+
+        // 3. Verificar os números de acertos/erros recebidos do ProofData
+        env.storage().temporary().set(&Symbol::new(&env, "dbg_res_hit"), &proof_data.acertos);
+        env.storage().temporary().set(&Symbol::new(&env, "dbg_res_perm"), &proof_data.permutados);
+        env.storage().temporary().set(&Symbol::new(&env, "dbg_res_err"), &proof_data.erros);
+
+        // 4. Integridade da Prova e Inputs Totais
+        env.storage().temporary().set(&Symbol::new(&env, "dbg_pub_inp"), &public_inputs_bytes);
+        env.storage().temporary().set(&Symbol::new(&env, "dbg_proof_len"), &proof_data.proof.len());
+        
         // Salva os inputs exatos enviados ao veroficador (deve ter 224 bytes)
         env.storage().temporary().set(&Symbol::new(&env, "dbg_pub_inp"), &public_inputs_bytes);
         // Salva o tamanho da prova recebida (para garantir que não há lixo no Uint8Array)
         env.storage().temporary().set(&Symbol::new(&env, "dbg_proof_len"), &proof_data.proof.len());
         // --- DEBUG STORAGE END ---
 
-       let vk_fixed = if vk.len() > 4 { vk.slice(4..) } else { vk.clone() };
+        // 3. Verificação com ajuste da VK (skip 4 bytes do header do BB)
+        let vk_fixed = if vk.len() > 4 { vk.slice(4..) } else { vk.clone() };
 
         match UltraHonkVerifier::new(env, &vk_fixed) {
             Ok(verifier) => {
-                // IMPORTANTE: Use 'public_inputs_bytes' (o que você montou) 
-                // e não 'proof_data.public_inputs' (o que veio do frontend)
                 let result = verifier.verify(&proof_data.proof, &public_inputs_bytes);
-                
                 if result.is_err() {
-                    // Se cair aqui, a VK carregou (Ok), mas a Prova ou os Inputs estão matematicamente errados
                     env.storage().temporary().set(&Symbol::new(&env, "dbg_vrfy_err"), &true);
                 }
                 result.is_ok()
             },
             Err(_) => {
-                // Se cair aqui, a VK ainda está corrompida ou o slice(4..) não foi suficiente
                 env.storage().temporary().set(&Symbol::new(&env, "dbg_vk_fail"), &true);
                 false
             }
