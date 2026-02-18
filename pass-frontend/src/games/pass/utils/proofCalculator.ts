@@ -1,13 +1,24 @@
 import { Noir } from '@noir-lang/noir_js';
-import { BarretenbergBackend } from '@noir-lang/backend_barretenberg';
-import { Barretenberg } from '@aztec/bb.js';
-import { Fr } from '@aztec/bb.js';
-// import circuit from '../circuit.json';
+import { UltraHonkBackend } from '@aztec/bb.js';
+import { Barretenberg, Fr } from '@aztec/bb.js';
+import initNoirC from '@noir-lang/noirc_abi';
+import initACVM from '@noir-lang/acvm_js';
+import acvm from '@noir-lang/acvm_js/web/acvm_js_bg.wasm?url';
+import noirc from '@noir-lang/noirc_abi/web/noirc_abi_wasm_bg.wasm?url';
+
+// Inicializa uma única vez — use uma flag global para evitar re-inicializar
+let wasmInitialized = false;
+
+async function initWasm() {
+    if (wasmInitialized) return;
+    await Promise.all([initACVM(fetch(acvm)), initNoirC(fetch(noirc))]);
+    wasmInitialized = true;
+}
 
 export interface ProofStats {
     acertos: number;      // Dígitos corretos na posição correta
-    erros: number;        // Dígitos incorretos
     permutados: number;   // Dígitos corretos em posição errada
+    erros: number;        // Dígitos incorretos
 }
 
 /**
@@ -55,7 +66,7 @@ export function calculateProof(
 
     const erros = 3 - acertos - permutados;
 
-    return { acertos, erros, permutados };
+    return { acertos, permutados, erros };
 }
 
 /**
@@ -108,12 +119,13 @@ export async function proveTurn(
     secret: number,
     salt: string,
     guess: number,
-    stats: ProofStats
-) {
+    stats: ProofStats,
+):  Promise<{ proof: Uint8Array; publicInputs: string[] }> {
     // Importar dinamicamente para evitar erros de SSR se necessário, 
     // mas aqui estamos no client-side.
     // O circuito deve ser importado. Assumindo que o usuário colocou o JSON em ../circuit.json
     // Se não tiver, o usuário precisará ajustar o caminho ou copiar o arquivo.
+    await initWasm(); // Garantir que os WASM estão inicializados antes de usar Noir ou o backend
     let circuit;
     try {
         // @ts-ignore
@@ -123,8 +135,9 @@ export async function proveTurn(
         throw new Error("Circuit artifact not found");
     }
 
-    const backend = new BarretenbergBackend(circuit as any);
-    const noir = new Noir(circuit as any);
+    const circuitData = (circuit as any).default ?? circuit;
+    const backend = new UltraHonkBackend(circuitData.bytecode);
+    const noir = new Noir(circuitData);
 
     // Preparar inputs para o circuito
     // O circuito espera arrays de u32 size 3 para secret e guess
@@ -142,19 +155,26 @@ export async function proveTurn(
     // fn main(secret, salt, guess, hash, acertos, permutados, erros) -> pub (...)
     // So we provide ALL inputs.
 
-    // We must calculate the hash to pass it as input 'hash'
-    const hashBuffer = await calculateHash(secret, salt);
-    const hashHex = "0x" + hashBuffer.toString('hex');
-
     // Normalize salt directly to field-compatible string (hex)
     const saltBn = normalizeSalt(salt);
-    const saltField = "0x" + saltBn.toString(16);
+    const saltField = '0x' + saltBn.toString(16).padStart(64, '0'); 
+    
+    const hashBuffer = await calculateHash(secret, salt);
+    // Para o Noir (ele precisa do 0x para entender que é HEX)
+    const hashField = `0x${hashBuffer.toString('hex').padStart(64, '0')}`;
 
+    // Para o seu controle/comparação:
+    console.log("Hash Real (Buffer):", hashBuffer.toString('hex'));
+
+    console.log('[proveTurn] Hash (from contract):', hashField);
+
+    console.log('secrect Hash:', hashField);
+    
     const input = {
         secret: secretStr,
         salt: saltField, // Pass formatted salt, not raw string
         guess: guessStr,
-        hash: hashHex,
+        hash: hashField,
         acertos: stats.acertos,
         permutados: stats.permutados,
         erros: stats.erros
@@ -176,11 +196,13 @@ export async function proveTurn(
             publicInputs: proofData.publicInputs
         };
     } catch (err: any) {
-        console.error("Erro ao gerar prova:", err);
-        if (err.message && err.message.includes("Cannot satisfy constraint")) {
-            throw new Error("Front end malicioso, corrija para continuar");
-        }
-        throw err;
+        console.error('[proveTurn] ❌ ERROR generating proof:', err);
+        console.error('[proveTurn] Error details:', {
+            message: err.message,
+            stack: err.stack
+        });
+        
+        throw new Error(`Proof generation failed: ${err.message}`);
     }
 }
 

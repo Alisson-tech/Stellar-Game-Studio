@@ -113,6 +113,7 @@ export function PassGame({
     myFeedback: ProofStats | null;
     opponentFeedback: ProofStats | null;
   } | null>(null);
+  const isVerifyingRef = useRef(false);
 
   // Hook para gerenciar secrets locais de AMBOS os players
   const { getMySecret, saveMySecret, getOtherPlayerSecret, clearAllSecrets } = useLocalGameSession(sessionId);
@@ -952,21 +953,24 @@ export function PassGame({
 
     const verifyAndComplete = async () => {
       try {
+        if (isVerifyingRef.current) return;
+        isVerifyingRef.current = true;
         console.log('[AutoVerify] Both proofs submitted, calling verify_proof...');
         const signer = getContractSigner();
 
         // Use a local try-catch for the contract call to handle idempotency
         let verifyResult;
         try {
-          verifyResult = await passService.verifyProof(sessionId, userAddress, signer);
-          console.log('[AutoVerify] Verify call successful:', verifyResult);
+            verifyResult = await passService.verifyProof(sessionId, userAddress, signer);
+            console.log('Verificacao funcionou:', verifyResult);
         } catch (err: any) {
-          // If contract says InvalidStatus, it might be already verified
-          if (err.message?.includes('InvalidStatus')) {
-            console.log('[AutoVerify] Game already verified, fetching state...');
-          } else {
-            throw err;
-          }
+            // ✅ InvalidStatus significa que outro player já verificou — não é erro crítico
+            if (err.message?.includes('InvalidStatus') || err.message?.includes('Error(Contract, #6)')) {
+                console.log('[AutoVerify] Jogo já verificado por outro player, buscando estado...');
+                // Apenas busca o estado atual sem tratar como erro
+            } else {
+                throw err;
+            }
         }
 
         // Fetch updated on-chain state
@@ -1029,6 +1033,11 @@ export function PassGame({
           console.error('[AutoVerify] Critical verification failure:', errorMsg);
         }
       }
+      finally {
+        setTimeout(() => {
+          isVerifyingRef.current = false;
+        }, 2000);
+      }
     };
 
     console.log('[AutoVerify] Condition met for verification');
@@ -1059,6 +1068,8 @@ export function PassGame({
     return await calculateHash(numValue, SALT);
   };
 
+  
+
   const handleSubmitProof = async () => {
     await runAction(async () => {
       try {
@@ -1079,6 +1090,8 @@ export function PassGame({
 
         const opponentGuess = isPlayer1 ? gameState?.player2_last_guess : gameState?.player1_last_guess;
 
+        console.log(`[SubmitProof] Palpite do oponente: ${opponentGuess}`);
+
         if (opponentGuess === null || opponentGuess === undefined) {
           throw new Error('Aguardando palpite do oponente para calcular prova.');
         }
@@ -1091,7 +1104,7 @@ export function PassGame({
         // STEP 2.5: GERAR PROVA ZK (Noir)
         // Isso vai verificar se o segredo local + salt batem com o hash registrado (se registrado com Poseidon)
         // E se as stats (acertos/erros) estão corretas.
-        let proofToSubmit: Buffer | null = null;
+        let proofToSubmit: Uint8Array | null = null;
 
         try {
           console.log('[SubmitProof] Gerando prova ZK no navegador...');
@@ -1099,23 +1112,39 @@ export function PassGame({
 
           // NOTA: O hash registrado no contrato deve ser o Poseidon hash para isso funcionar.
           // Se o jogo começou com SHA-256 (versão antiga), a geração da prova vai falhar na asserção do hash.
-          const saltBn = stringToBigInt(SALT);
           // O circuito espera o salt como Field? string 'minha-salt' nao é field direto. 
           // Vamos passar o mesmo BigInt convertido para string ou hex que usamos no hashNumber
 
           const { proof, publicInputs } = await proveTurn(
             mySecret,
-            saltBn.toString(),
+            SALT,
             opponentGuess,
-            proofStats
+            proofStats,
           );
 
-          proofToSubmit = Buffer.from(proof);
+          console.log('[DEBUG] Número de public inputs:', publicInputs.length);
+          publicInputs.forEach((input, i) => {
+              console.log(`[DEBUG] Public Input ${i} (raw):`, input);
+              // Converte para bytes para inspecionar o encoding
+              const bytes = Uint8Array.from(Buffer.from(input.replace('0x', ''), 'hex'));
+              console.log(`[DEBUG] Public Input ${i} (bytes hex):`, Buffer.from(bytes).toString('hex'));
+          });
+
+          proofToSubmit = proof;
 
           console.log('[SubmitProof] PROVA ZK GERADA COM SUCESSO!');
-          console.log('[SubmitProof] Proof (hex):', proofToSubmit.toString('hex'));
+          console.log('[SubmitProof] Proof (hex):', proofToSubmit);
           console.log('[SubmitProof] Public Inputs:', publicInputs);
+          
+          publicInputs.forEach((input, i) => {
+            const hex = Buffer.from(input).toString('hex');
+            console.log(`[SubmitProof] Public Input ${i}:`, hex);
+          });
 
+          // Validar que temos 7 public inputs
+          if (publicInputs.length !== 7) {
+            console.warn(`⚠️ Expected 7 public inputs, got ${publicInputs.length}`);
+          }
           // TODO: No futuro, enviar proof e publicInputs para o contrato
           // await passService.submitProof(..., proof, publicInputs, ...)
         } catch (zkError: any) {
@@ -1127,18 +1156,29 @@ export function PassGame({
           }
 
           console.warn('[SubmitProof] Continuando com envio sem prova ZK (modo compatibilidade)...');
+          throw new Error(`Falha ao gerar prova ZK: ${zkError.message}`);
           // Não bloqueamos o envio por enquanto, pois o contrato ainda não exige a prova
         }
 
         // STEP 3: Enviar prova ao contrato (stats calculadas)
         console.log('[SubmitProof] Enviando prova ao contrato...');
+        console.log('[SubmitProof] Enviando prova ao contrato...');
+        console.log('[SubmitProof] Stats:', {
+          acertos: proofStats.acertos,
+          erros: proofStats.erros,
+          permutados: proofStats.permutados,
+          hasProof: proofToSubmit !== null,
+          proofLength: proofToSubmit?.length || 0
+        });
+
+        
         await passService.submitProof(
           sessionId,
           userAddress,
           proofToSubmit,
           proofStats.acertos,
-          proofStats.erros,
           proofStats.permutados,
+          proofStats.erros,
           signer
         );
 
@@ -1184,16 +1224,6 @@ export function PassGame({
 
   const player1Guess = gameState?.player1_last_guess;
   const player2Guess = gameState?.player2_last_guess;
-
-  // For the Pass game, there's no "winning_number" - the winner is determined by comparing guesses to opponent's secrets
-  const player1Distance =
-    player1Guess !== null && player1Guess !== undefined && gameState?.player2_secret_hash !== null && gameState?.player2_secret_hash !== undefined
-      ? Math.abs(Number(player1Guess) - Number(gameState.player2_secret_hash))
-      : null;
-  const player2Distance =
-    player2Guess !== null && player2Guess !== undefined && gameState?.player1_secret_hash !== null && gameState?.player1_secret_hash !== undefined
-      ? Math.abs(Number(player2Guess) - Number(gameState.player1_secret_hash))
-      : null;
 
 
   const handleDarkUISubmit = async (value: string) => {

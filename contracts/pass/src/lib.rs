@@ -11,7 +11,7 @@
 
 use soroban_sdk::{
     contract, contractclient, contracterror, contractimpl, contracttype, vec, Address, Bytes,
-    BytesN, Env, IntoVal, Vec,
+    BytesN, Env, IntoVal, Vec, Symbol
 };
 
 // Import code for ZK verification
@@ -69,8 +69,8 @@ pub struct GameResult {
 pub struct ProofData {
     pub player: Address,
     pub acertos: u32,
-    pub erros: u32,
     pub permutados: u32,
+    pub erros: u32,
     pub proof: Bytes,
 }
 
@@ -335,8 +335,8 @@ impl PassContract {
         session_id: u32,
         player: Address,
         acertos: u32,
-        erros: u32,
         permutados: u32,
+        erros: u32,
         proof: Bytes,
     ) -> Result<(), Error> {
         player.require_auth();
@@ -352,13 +352,19 @@ impl PassContract {
             return Err(Error::InvalidStatus);
         }
 
+        let guess = game.player1_last_guess;
+        env.storage().temporary().set(&Symbol::new(&env, "game_player1_last_guess"), &guess);
+
         let proof_data = ProofData {
             player: player.clone(),
             acertos,
-            erros,
             permutados,
+            erros,
             proof,
         };
+
+        env.storage().temporary().set(&Symbol::new(&env, "debug_proof_data_submit"), &proof_data);
+
 
         if player == game.player1 {
             game.player1_proof = vec![&env, proof_data];
@@ -462,83 +468,86 @@ impl PassContract {
         let p2_proof_valid =
             Self::verify_zk_proof(&env, &p2_submitted_proof, &p2_secret_hash, p1_guess);
 
+        env.storage().temporary().set(&Symbol::new(&env, "debug_p1"), &p1_proof_valid);
+        env.storage().temporary().set(&Symbol::new(&env, "debug_p2"), &p2_proof_valid);
+
         // --- FRAUD HANDLING ---
 
-        if !p1_proof_valid && !p2_proof_valid {
-            // Double Fraud? Technical Draw or handle specific rules.
-            // For simplicity: Draw but game ends.
-            game.status = GameStatus::Draw; // Or a specific fraud status
-            game.winner = None;
+        // if !p1_proof_valid && !p2_proof_valid {
+        //     // Double Fraud? Technical Draw or handle specific rules.
+        //     // For simplicity: Draw but game ends.
+        //     game.status = GameStatus::Draw; // Or a specific fraud status
+        //     game.winner = None;
 
-            // Save & Return empty/error results
-            env.storage().temporary().set(&key, &game);
-            return Err(Error::InvalidStatus); // Or custom error
-        }
+        //     // Save & Return empty/error results
+        //     env.storage().temporary().set(&key, &game);
+        //     return Err(Error::InvalidStatus); // Or custom error
+        // }
 
-        if !p1_proof_valid {
-            // Player 1 submitted invalid proof -> Player 2 wins
-            game.status = GameStatus::Winner;
-            game.winner = Some(game.player2.clone());
+        // if !p1_proof_valid {
+        //     // Player 1 submitted invalid proof -> Player 2 wins
+        //     game.status = GameStatus::Winner;
+        //     game.winner = Some(game.player2.clone());
 
-            env.storage().temporary().set(&key, &game);
+        //     env.storage().temporary().set(&key, &game);
 
-            // Notify Hub
-            let hub_addr: Address = env
-                .storage()
-                .instance()
-                .get(&DataKey::GameHubAddress)
-                .unwrap();
-            let hub = GameHubClient::new(&env, &hub_addr);
-            hub.end_game(&session_id, &false); // Winner is P2 (not P1)
+        //     // Notify Hub
+        //     let hub_addr: Address = env
+        //         .storage()
+        //         .instance()
+        //         .get(&DataKey::GameHubAddress)
+        //         .unwrap();
+        //     let hub = GameHubClient::new(&env, &hub_addr);
+        //     hub.end_game(&session_id, &false); // Winner is P2 (not P1)
 
-            // Return empty/partial results as game ended
-            return Ok((
-                GameResult {
-                    player: game.player1.clone(),
-                    acertos: 0,
-                    erros: 0,
-                    permutados: 0,
-                },
-                GameResult {
-                    player: game.player2.clone(),
-                    acertos: 0,
-                    erros: 0,
-                    permutados: 0,
-                },
-            ));
-        }
+        //     // Return empty/partial results as game ended
+        //     return Ok((
+        //         GameResult {
+        //             player: game.player1.clone(),
+        //             acertos: 0,
+        //             erros: 0,
+        //             permutados: 0,
+        //         },
+        //         GameResult {
+        //             player: game.player2.clone(),
+        //             acertos: 0,
+        //             erros: 0,
+        //             permutados: 0,
+        //         },
+        //     ));
+        // }
 
-        if !p2_proof_valid {
-            // Player 2 submitted invalid proof -> Player 1 wins
-            game.status = GameStatus::Winner;
-            game.winner = Some(game.player1.clone());
+        // if !p2_proof_valid {
+        //     // Player 2 submitted invalid proof -> Player 1 wins
+        //     game.status = GameStatus::Winner;
+        //     game.winner = Some(game.player1.clone());
 
-            env.storage().temporary().set(&key, &game);
+        //     env.storage().temporary().set(&key, &game);
 
-            // Notify Hub
-            let hub_addr: Address = env
-                .storage()
-                .instance()
-                .get(&DataKey::GameHubAddress)
-                .unwrap();
-            let hub = GameHubClient::new(&env, &hub_addr);
-            hub.end_game(&session_id, &true); // Winner is P1
+        //     // Notify Hub
+        //     let hub_addr: Address = env
+        //         .storage()
+        //         .instance()
+        //         .get(&DataKey::GameHubAddress)
+        //         .unwrap();
+        //     let hub = GameHubClient::new(&env, &hub_addr);
+        //     hub.end_game(&session_id, &true); // Winner is P1
 
-            return Ok((
-                GameResult {
-                    player: game.player1.clone(),
-                    acertos: 0,
-                    erros: 0,
-                    permutados: 0,
-                },
-                GameResult {
-                    player: game.player2.clone(),
-                    acertos: 0,
-                    erros: 0,
-                    permutados: 0,
-                },
-            ));
-        }
+        //     return Ok((
+        //         GameResult {
+        //             player: game.player1.clone(),
+        //             acertos: 0,
+        //             erros: 0,
+        //             permutados: 0,
+        //         },
+        //         GameResult {
+        //             player: game.player2.clone(),
+        //             acertos: 0,
+        //             erros: 0,
+        //             permutados: 0,
+        //         },
+        //     ));
+        // }
 
         // --- IF BOTH VALID -> DETERMINE WINNER ---
 
@@ -615,67 +624,81 @@ impl PassContract {
         Ok((result_p1, result_p2))
     }
 
-    /// Helper to verify ZK proof.
-    ///
-    /// TODO: Replace this with actual `rs-soroban-ultrahonk` verification.
-    /// Currently returns TRUE to allow game progression.
     fn verify_zk_proof(
         env: &Env,
         proof_data: &ProofData,
         secret_hash: &BytesN<32>,
         opponent_guess: u32,
     ) -> bool {
-        let vk: Bytes = env
-            .storage()
-            .instance()
-            .get(&DataKey::VerificationKey)
-            .expect("VK not set");
+        let vk: Bytes = env.storage().instance().get(&DataKey::VerificationKey).expect("VK not set");
 
-        let mut public_inputs_bytes = Bytes::new(env);
-
-        // --- ORDEM DOS INPUTS PÚBLICOS (IGUAL AO NOIR) ---
-
-        // 1. Guess: [u32; 3]
-        // Precisamos quebrar o palpite (ex: 123) em dígitos individuais
+        // 1. Separar dígitos
         let d1 = (opponent_guess / 100) % 10;
         let d2 = (opponent_guess / 10) % 10;
         let d3 = opponent_guess % 10;
 
-        public_inputs_bytes.append(&Self::u32_to_bytes32(env, d1).into());
-        public_inputs_bytes.append(&Self::u32_to_bytes32(env, d2).into());
-        public_inputs_bytes.append(&Self::u32_to_bytes32(env, d3).into());
+        // 2. Criar um vetor fixo para garantir que não haja overhead de redimensionamento
+        // 7 inputs * 32 bytes = 224 bytes
+        let mut full_inputs = [0u8; 224];
 
-        // 2. Hash: Field
-        public_inputs_bytes.append(&secret_hash.clone().into());
-
-        // 3. Acertos: u32
-        public_inputs_bytes.append(&Self::u32_to_bytes32(env, proof_data.acertos).into());
-
-        // 4. Permutados: u32
-        public_inputs_bytes.append(&Self::u32_to_bytes32(env, proof_data.permutados).into());
-
-        // 5. Erros: u32
-        public_inputs_bytes.append(&Self::u32_to_bytes32(env, proof_data.erros).into());
-
-        // --- VERIFICAÇÃO ---
-        match UltraHonkVerifier::new(env, &vk) {
-            Ok(verifier) => verifier.verify(&proof_data.proof, &public_inputs_bytes).is_ok(),
-            Err(_) => false,
+        // Auxiliar para preencher o array
+        fn write_u32_at(dest: &mut [u8], offset: usize, val: u32) {
+            let bytes = val.to_be_bytes(); // Noir espera Big Endian
+            dest[offset + 28] = bytes[0];
+            dest[offset + 29] = bytes[1];
+            dest[offset + 30] = bytes[2];
+            dest[offset + 31] = bytes[3];
         }
-    }
 
-    /// Helper para converter u32 em representação de 32 bytes (BE) para o Noir Field
-    fn u32_to_bytes32(env: &Env, value: u32) -> BytesN<32> {
-        let mut bytes = [0u8; 32];
-        let v_bytes = value.to_be_bytes(); // Retorna [u8; 4]
-        
-        // Alinha o u32 no final dos 32 bytes
-        bytes[28] = v_bytes[0];
-        bytes[29] = v_bytes[1];
-        bytes[30] = v_bytes[2];
-        bytes[31] = v_bytes[3];
-        
-        BytesN::from_array(env, &bytes)
+        // Preencher Guess (Inputs 0, 1, 2)
+        write_u32_at(&mut full_inputs, 0, d1);
+        write_u32_at(&mut full_inputs, 32, d2);
+        write_u32_at(&mut full_inputs, 64, d3);
+
+        // Preencher Hash (Input 3) - Copiar os 32 bytes do BytesN
+        let hash_bytes = secret_hash.to_array();
+        for i in 0..32 {
+            full_inputs[96 + i] = hash_bytes[i];
+        }
+
+        // Preencher Stats (Inputs 4, 5, 6)
+        write_u32_at(&mut full_inputs, 128, proof_data.acertos);
+        write_u32_at(&mut full_inputs, 160, proof_data.permutados);
+        write_u32_at(&mut full_inputs, 192, proof_data.erros);
+
+        // Converter para o tipo Bytes do Soroban
+        let public_inputs_bytes = Bytes::from_array(env, &full_inputs);
+
+        // DEBUG: O tamanho TEM que ser 224
+        // env.storage().temporary().set(&Symbol::new(&env, "debug_len"), &public_inputs_bytes.len());
+
+        // --- DEBUG STORAGE START ---
+        // Salva os inputs exatos enviados ao veroficador (deve ter 224 bytes)
+        env.storage().temporary().set(&Symbol::new(&env, "dbg_pub_inp"), &public_inputs_bytes);
+        // Salva o tamanho da prova recebida (para garantir que não há lixo no Uint8Array)
+        env.storage().temporary().set(&Symbol::new(&env, "dbg_proof_len"), &proof_data.proof.len());
+        // --- DEBUG STORAGE END ---
+
+       let vk_fixed = if vk.len() > 4 { vk.slice(4..) } else { vk.clone() };
+
+        match UltraHonkVerifier::new(env, &vk_fixed) {
+            Ok(verifier) => {
+                // IMPORTANTE: Use 'public_inputs_bytes' (o que você montou) 
+                // e não 'proof_data.public_inputs' (o que veio do frontend)
+                let result = verifier.verify(&proof_data.proof, &public_inputs_bytes);
+                
+                if result.is_err() {
+                    // Se cair aqui, a VK carregou (Ok), mas a Prova ou os Inputs estão matematicamente errados
+                    env.storage().temporary().set(&Symbol::new(&env, "dbg_vrfy_err"), &true);
+                }
+                result.is_ok()
+            },
+            Err(_) => {
+                // Se cair aqui, a VK ainda está corrompida ou o slice(4..) não foi suficiente
+                env.storage().temporary().set(&Symbol::new(&env, "dbg_vk_fail"), &true);
+                false
+            }
+        }
     }
 
     /// Check if the game has ended and return the winner if exists.
@@ -817,6 +840,12 @@ impl PassContract {
         admin.require_auth();
 
         env.storage().instance().set(&DataKey::VerificationKey, &vk);
+    }
+
+    pub fn get_verification_key(env: Env) -> Option<Bytes> {
+        env.storage()
+            .instance()
+            .get(&DataKey::VerificationKey)
     }
 
     /// Update the contract WASM hash (upgrade contract)

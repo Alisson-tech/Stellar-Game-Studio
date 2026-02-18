@@ -72,8 +72,6 @@ async function testnetAccountExists(address: string): Promise<boolean> {
 
 async function ensureTestnetFunded(address: string): Promise<void> {
   if (await testnetAccountExists(address)) {
-    // Even if Horizon sees it, Soroban RPC might not.
-    // We'll do a small extra wait to be safe.
     await new Promise((r) => setTimeout(r, 2000));
     return;
   }
@@ -85,7 +83,6 @@ async function ensureTestnetFunded(address: string): Promise<void> {
   for (let attempt = 0; attempt < 10; attempt++) {
     await new Promise((r) => setTimeout(r, 1000));
     if (await testnetAccountExists(address)) {
-      // Robust wait for RPC synchronization
       await new Promise((r) => setTimeout(r, 5000));
       return;
     }
@@ -144,13 +141,24 @@ const needsMock = contracts.some((c) => !c.isMockHub);
 const deployMockRequested = contracts.some((c) => c.isMockHub);
 const shouldEnsureMock = deployMockRequested || needsMock;
 
-// Check required WASM files exist for selected contracts (non-mock first)
+// Verificações pré-deploy específicas por contrato
 const missingWasm: string[] = [];
 for (const contract of contracts) {
   if (contract.isMockHub) continue;
+
+  // Para o contrato "pass", verificar se a VK foi gerada
   if (contract.packageName === "pass") {
-     const path = join(process.cwd(), "pass-frontend/src/games/pass/circuit.json");
+    const vkPath = join(process.cwd(), "contracts/pass/target/vk.bin/vk");
+    if (!existsSync(vkPath)) {
+      console.error("❌ VK não encontrada em contracts/pass/target/vk.bin/vk");
+      console.error("  Gere a VK com o Docker antes de fazer o deploy:");
+      console.error("  docker run -it --rm -v $(pwd)/contracts/pass:/circuit vk-builder bash -c \\");
+      console.error("    \"nargo compile && bb write_vk -b ./target/pass_circuit.json -o ./target/vk\"");
+      process.exit(1);
+    }
+    console.log("  ✅ VK encontrada em contracts/pass/target/vk/vk");
   }
+
   if (!await Bun.file(contract.wasmPath).exists()) missingWasm.push(contract.wasmPath);
 }
 if (missingWasm.length > 0) {
@@ -161,8 +169,6 @@ if (missingWasm.length > 0) {
 }
 
 // Create three testnet identities: admin, player1, player2
-// Admin signs deployments directly via secret key (no CLI identity required).
-// Player1 and player2 are keypairs for frontend dev use.
 const walletAddresses: Record<string, string> = {};
 const walletSecrets: Record<string, string> = {};
 
@@ -188,7 +194,6 @@ if (existsSync("deployment.json")) {
     if (existingDeployment?.contracts && typeof existingDeployment.contracts === "object") {
       Object.assign(existingContractIds, existingDeployment.contracts);
     } else {
-      // Backwards compatible fallback
       if (existingDeployment?.mockGameHubId) existingContractIds["mock-game-hub"] = existingDeployment.mockGameHubId;
       if (existingDeployment?.twentyOneId) existingContractIds["twenty-one"] = existingDeployment.twentyOneId;
       if (existingDeployment?.numberGuessId) existingContractIds["number-guess"] = existingDeployment.numberGuessId;
@@ -204,7 +209,7 @@ for (const contract of allContracts) {
   if (envId) existingContractIds[contract.packageName] = envId;
 }
 
-// Handle admin identity (needs to be in Stellar CLI for deployment)
+// Handle admin identity
 console.log('Setting up admin identity...');
 console.log('📝 Generating new admin identity...');
 const adminKeypair = Keypair.random();
@@ -219,11 +224,11 @@ try {
   process.exit(1);
 }
 
-// Handle player identities (don't need to be in CLI, just keypairs)
+// Handle player identities
 for (const identity of ['player1', 'player2']) {
   console.log(`Setting up ${identity}...`);
 
-  let keypair: Keypair;
+  let keypair: any;
   if (existingSecrets[identity]) {
     console.log(`✅ Using existing ${identity} from .env`);
     keypair = Keypair.fromSecret(existingSecrets[identity]!);
@@ -236,7 +241,6 @@ for (const identity of ['player1', 'player2']) {
   walletSecrets[identity] = keypair.secret();
   console.log(`✅ ${identity}: ${keypair.publicKey()}`);
 
-  // Ensure player accounts exist on testnet (even if reusing keys from .env)
   try {
     await ensureTestnetFunded(keypair.publicKey());
     console.log(`✅ ${identity} funded\n`);
@@ -245,7 +249,6 @@ for (const identity of ['player1', 'player2']) {
   }
 }
 
-// Save to deployment.json and .env for setup script to use
 console.log("🔐 Player secret keys will be saved to .env (gitignored)\n");
 
 console.log("💼 Wallet addresses:");
@@ -253,13 +256,12 @@ console.log(`  Admin:   ${walletAddresses.admin}`);
 console.log(`  Player1: ${walletAddresses.player1}`);
 console.log(`  Player2: ${walletAddresses.player2}\n`);
 
-// Use admin secret for contract deployment
 const adminAddress = walletAddresses.admin;
 const adminSecret = adminKeypair.secret();
 
 const deployed: Record<string, string> = { ...existingContractIds };
 
-// Ensure mock Game Hub exists so we can pass it into game constructors.
+// Ensure mock Game Hub exists
 let mockGameHubId = existingContractIds[mock.packageName] || "";
 if (shouldEnsureMock) {
   const candidateMockIds = [
@@ -289,7 +291,6 @@ if (shouldEnsureMock) {
     console.warn(`⚠️  ${mock.packageName} not found on testnet (archived or reset). Deploying a new one...`);
     console.log(`Deploying ${mock.packageName}...`);
     try {
-      // Retry logic for deployment to handle "Account not found" or lag
       let result = "";
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
@@ -335,14 +336,13 @@ for (const contract of contracts) {
     console.log("  Deploying...");
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        // 1. DEPLOY LIMPO (Sem argumentos de construtor no CLI)
         const deployResult = await $`stellar contract deploy --wasm-hash ${wasmHash} --source-account ${adminSecret} --network ${NETWORK}`.text();
         contractId = deployResult.trim();
         deployed[contract.packageName] = contractId;
         console.log(`✅ ${contract.packageName} deployed: ${contractId}`);
 
-        // 2. INICIALIZAÇÃO MANUAL (Apenas para o contrato "pass")
         if (contract.packageName === "pass") {
+          // 1. Initialize
           console.log("  🎬 Executando initialize...");
           await $`stellar contract invoke \
             --id ${contractId} \
@@ -351,27 +351,34 @@ for (const contract of contracts) {
             -- initialize \
             --admin ${adminAddress} \
             --game-hub ${mockGameHubId}`;
+          console.log("  ✅ Initialize concluído!");
 
-          // 3. CONFIGURAÇÃO DA VK
-          const circuitPath = join(process.cwd(), "pass-frontend/src/games/pass/circuit.json");
-          if (existsSync(circuitPath)) {
-            const circuitData = await Bun.file(circuitPath).json();
-            const vkBase64 = circuitData.verification_key || circuitData.vk;
+          // 2. Enviar VK via arquivo temporário (evita limite de tamanho de argumento no shell)
+          const vkPath = join(process.cwd(), "contracts/pass/target/vk.bin/vk");
+          console.log("  📤 Lendo VK...");
 
-            if (vkBase64) {
-              console.log("  📤 Enviando VK...");
-              const vkHex = Buffer.from(vkBase64, 'base64').toString('hex');
-              await $`stellar contract invoke \
-                --id ${contractId} \
-                --source-account ${adminSecret} \
-                --network ${NETWORK} \
-                -- set_verification_key \
-                --vk ${vkHex}`;
-              console.log("  ✅ VK configurada com sucesso!");
-            }
+          const vkBuffer = await Bun.file(vkPath).arrayBuffer();
+          // Convertemos para Hex apenas para o CLI do Stellar conseguir transportar no comando
+          const vkHex = Buffer.from(vkBuffer).toString('hex');
+
+          console.log(`  📦 VK: ${vkHex.length / 2} bytes (${vkHex.length} hex chars)`);
+
+          try {
+            console.log("  📤 Enviando VK ao contrato...");
+            await $`stellar contract invoke \
+              --id ${contractId} \
+              --source-account ${adminSecret} \
+              --network ${NETWORK} \
+              -- set_verification_key \
+              --vk ${vkHex}`;
+            console.log("  ✅ VK configurada com sucesso!");
+          } catch (err) {
+            console.error("❌ Failed to set VK on contract:", err);
+            throw err;
           }
         }
-        break; // Sucesso em todo o processo, sai do loop de tentativas de deploy
+
+        break; // Sucesso, sai do loop de tentativas
       } catch (err) {
         if (attempt === 2) throw err;
         console.warn(`  ⚠️  Deploy/Init attempt ${attempt + 1} failed, retrying in 5s...`);
@@ -384,8 +391,6 @@ for (const contract of contracts) {
     process.exit(1);
   }
 }
-  
-  
 
 console.log("🎉 Deployment complete!\n");
 console.log("Contract IDs:");

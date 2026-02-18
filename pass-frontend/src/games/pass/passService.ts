@@ -660,22 +660,36 @@ export class PassService {
   async submitProof(
     sessionId: number,
     playerAddress: string,
-    proof: Bytes,
+    proof: Buffer | Uint8Array | null,
     acertos: number,
-    erros: number,
     permutados: number,
+    erros: number,
     signer: Pick<contract.ClientOptions, 'signTransaction' | 'signAuthEntry'>,
     authTtlMinutes?: number
   ) {
-    const client = this.createSigningClient(playerAddress, signer);
 
+    let proofBytes: any;
+  
+    if (proof) {
+      // Converter Buffer/Uint8Array para Bytes do Soroban
+      proofBytes = proof instanceof Buffer ? proof : Buffer.from(proof);
+    } else {
+      // Se não há proof (modo compatibilidade), enviar bytes vazios
+      proofBytes = Buffer.from([]);
+    }
+
+    console.log('[SubmitProof] Proof length:', proofBytes.length);
+    console.log('[SubmitProof] Proof (hex):', proofBytes.toString('hex'));
+
+    const client = this.createSigningClient(playerAddress, signer);
+    
     const tx = await client.submit_proof({
       session_id: sessionId,
       player: playerAddress,
       acertos,
-      erros,
       permutados,
-      proof,
+      erros,
+      proof: proofBytes, 
     }, DEFAULT_METHOD_OPTIONS);
 
     const validUntilLedgerSeq = authTtlMinutes
@@ -718,6 +732,10 @@ export class PassService {
     try {
       const sentTx = await signAndSendViaLaunchtube(tx, DEFAULT_METHOD_OPTIONS.timeoutInSeconds, validUntilLedgerSeq);
 
+      console.error('[verifyProof] TX Response completo:', JSON.stringify(sentTx.getTransactionResponse, null, 2));
+      console.error('[verifyProof] TX Hash:', sentTx.getTransactionResponse?.hash);
+
+
       if (sentTx.getTransactionResponse?.status === 'FAILED') {
         const errorMessage = this.extractErrorFromDiagnostics(sentTx.getTransactionResponse);
         throw new Error(`Transaction failed: ${errorMessage}`);
@@ -725,6 +743,11 @@ export class PassService {
 
       return sentTx.result;
     } catch (err) {
+        console.error('[verifyProof] ERRO COMPLETO:', JSON.stringify(err, null, 2));
+        console.error('[verifyProof] err.message:', (err as any)?.message);
+        console.error('[verifyProof] err.hash:', (err as any)?.hash);
+        console.error('[verifyProof] err.response:', JSON.stringify((err as any)?.response, null, 2));
+
       if (err instanceof Error && err.message.includes('Transaction failed!')) {
         throw new Error('Transaction failed - check if both players have guessed');
       }
