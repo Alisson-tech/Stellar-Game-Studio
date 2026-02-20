@@ -88,6 +88,8 @@ pub struct Game {
     pub player2_proof: soroban_sdk::Vec<ProofData>,
     pub p1_proof_verified: bool,
     pub p2_proof_verified: bool,
+    pub p1_is_fraud: bool,
+    pub p2_is_fraud: bool,
     pub winner: Option<Address>,
     pub status: GameStatus,
     pub player1_result: soroban_sdk::Vec<GameResult>,
@@ -191,6 +193,8 @@ impl PassContract {
             player2_proof: soroban_sdk::Vec::new(&env),
             p1_proof_verified: false,
             p2_proof_verified: false,
+            p1_is_fraud: false,
+            p2_is_fraud: false,
             winner: None,
             status: GameStatus::Setup,
             player1_result: soroban_sdk::Vec::new(&env),
@@ -367,13 +371,10 @@ impl PassContract {
 
             // Player 1 prova seu segredo contra o palpite do Player 2
             let is_valid = Self::verify_zk_proof_internal(&env, &p2_proof, &p2_secret, p1_guess);
-
             if !is_valid {
                 // Fraude detectada. Player 2 ganha automaticamente.
-                game.status = GameStatus::Winner;
-                game.winner = Some(game.player2.clone());
+                game.p2_is_fraud = true;
                 env.storage().temporary().set(&key, &game);
-                return Ok(None); // Ou um erro customizado "FraudDetected"
             }
             // Marca a prova 1 como verificada
             game.p2_proof_verified = true;
@@ -389,19 +390,25 @@ impl PassContract {
             let is_valid = Self::verify_zk_proof_internal(&env, &p1_proof, &p1_secret, p2_guess);
 
             if !is_valid {
-                // Fraude detectada. Player 1 ganha automaticamente.
-                game.status = GameStatus::Winner;
-                game.winner = Some(game.player1.clone());
+                game.p1_is_fraud = true;
                 env.storage().temporary().set(&key, &game);
-                return Ok(None);
             }
             // Marca a prova 2 como verificada
             game.p1_proof_verified = true;
             env.storage().temporary().set(&key, &game);
         }
 
-        // SE AS DUAS JÁ FORAM VERIFICADAS (Nesta transação ou na anterior), FINALIZA O ROUND
         if game.p1_proof_verified && game.p2_proof_verified {
+            if game.p1_is_fraud && game.p2_is_fraud {
+                game.status = GameStatus::Draw;
+            } else if game.p1_is_fraud {
+                game.status = GameStatus::Winner;
+                game.winner = Some(game.player2.clone());
+            } else if game.p2_is_fraud {
+                game.status = GameStatus::Winner;
+                game.winner = Some(game.player1.clone());
+            }
+
             let p1_proof = game.player1_proof.get(0).unwrap();
             let p2_proof = game.player2_proof.get(0).unwrap();
 
