@@ -86,6 +86,8 @@ pub struct Game {
     pub player2_last_guess: Option<u32>,
     pub player1_proof: soroban_sdk::Vec<ProofData>,
     pub player2_proof: soroban_sdk::Vec<ProofData>,
+    pub p1_proof_verified: bool,
+    pub p2_proof_verified: bool,
     pub winner: Option<Address>,
     pub status: GameStatus,
     pub player1_result: soroban_sdk::Vec<GameResult>,
@@ -187,6 +189,8 @@ impl PassContract {
             player2_last_guess: None,
             player1_proof: soroban_sdk::Vec::new(&env),
             player2_proof: soroban_sdk::Vec::new(&env),
+            p1_proof_verified: false,
+            p2_proof_verified: false,
             winner: None,
             status: GameStatus::Setup,
             player1_result: soroban_sdk::Vec::new(&env),
@@ -321,7 +325,13 @@ impl PassContract {
         Ok(())
     }
 
-    pub fn verify_proof(env: Env, session_id: u32) -> Result<(GameResult, GameResult), Error> {
+    pub fn verify_proof(
+        env: Env,
+        session_id: u32,
+        caller: Address,
+    ) -> Result<Option<(GameResult, GameResult)>, Error> {
+        caller.require_auth();
+
         let key = DataKey::Game(session_id);
         let mut game: Game = env
             .storage()
@@ -330,11 +340,12 @@ impl PassContract {
             .ok_or(Error::GameNotFound)?;
 
         if game.status != GameStatus::Playing {
+            // Se já foi finalizado, retorna os resultados
             if game.player1_result.len() > 0 && game.player2_result.len() > 0 {
-                return Ok((
+                return Ok(Some((
                     game.player1_result.get_unchecked(0),
                     game.player2_result.get_unchecked(0),
-                ));
+                )));
             }
             return Err(Error::InvalidStatus);
         }
@@ -346,154 +357,122 @@ impl PassContract {
             .player2_last_guess
             .ok_or(Error::BothPlayersNotGuessed)?;
 
-        let p1_submitted_proof = game.player1_proof.get(0).ok_or(Error::InvalidStatus)?;
-        let p2_submitted_proof = game.player2_proof.get(0).ok_or(Error::InvalidStatus)?;
+        // VERIFICA APENAS A PROVA DE QUEM CHAMOU A TRANSAÇÃO
+        if caller == game.player1 && !game.p2_proof_verified {
+            let p2_proof = game.player2_proof.get(0).ok_or(Error::InvalidStatus)?;
+            let p2_secret = game
+                .player2_secret_hash
+                .clone()
+                .ok_or(Error::InvalidStatus)?;
 
-        let p1_secret_hash = game
-            .player1_secret_hash
-            .clone()
-            .ok_or(Error::InvalidStatus)?;
-        let p2_secret_hash = game
-            .player2_secret_hash
-            .clone()
-            .ok_or(Error::InvalidStatus)?;
+            // Player 1 prova seu segredo contra o palpite do Player 2
+            let is_valid = Self::verify_zk_proof_internal(&env, &p2_proof, &p2_secret, p1_guess);
 
-        let p1_proof_valid =
-            Self::verify_zk_proof_internal(&env, &p1_submitted_proof, &p1_secret_hash, p2_guess);
-
-        env.storage()
-            .temporary()
-            .set(&Symbol::new(&env, "proof_valid"), &p1_proof_valid);
-
-        // let p2_proof_valid =
-        //     Self::verify_zk_proof_internal(&env, &p2_submitted_proof, &p2_secret_hash, p1_guess);
-
-        // --- FRAUD HANDLING ---
-        // if !p1_proof_valid && !p2_proof_valid {
-        //     game.status = GameStatus::Draw;
-        //     game.winner = None;
-        //     env.storage().temporary().set(&key, &game);
-        //     return Err(Error::InvalidStatus);
-        // }
-
-        if !p1_proof_valid {
-            game.status = GameStatus::Winner;
-            game.winner = Some(game.player2.clone());
-            env.storage().temporary().set(&key, &game);
-
-            let hub_addr: Address = env
-                .storage()
-                .instance()
-                .get(&DataKey::GameHubAddress)
-                .unwrap();
-            let hub = GameHubClient::new(&env, &hub_addr);
-            hub.end_game(&session_id, &false);
-
-            return Ok((
-                GameResult {
-                    player: game.player1.clone(),
-                    acertos: 0,
-                    erros: 0,
-                    permutados: 0,
-                },
-                GameResult {
-                    player: game.player2.clone(),
-                    acertos: 0,
-                    erros: 0,
-                    permutados: 0,
-                },
-            ));
-        }
-
-        // if !p2_proof_valid {
-        //     game.status = GameStatus::Winner;
-        //     game.winner = Some(game.player1.clone());
-        //     env.storage().temporary().set(&key, &game);
-
-        //     let hub_addr: Address = env
-        //         .storage()
-        //         .instance()
-        //         .get(&DataKey::GameHubAddress)
-        //         .unwrap();
-        //     let hub = GameHubClient::new(&env, &hub_addr);
-        //     hub.end_game(&session_id, &true);
-
-        //     return Ok((
-        //         GameResult {
-        //             player: game.player1.clone(),
-        //             acertos: 0,
-        //             erros: 0,
-        //             permutados: 0,
-        //         },
-        //         GameResult {
-        //             player: game.player2.clone(),
-        //             acertos: 0,
-        //             erros: 0,
-        //             permutados: 0,
-        //         },
-        //     ));
-        // }
-
-        // --- IF BOTH VALID -> DETERMINE WINNER ---
-        let p2_guessed_correctly = p1_submitted_proof.acertos == 3;
-        let p1_guessed_correctly = p2_submitted_proof.acertos == 3;
-
-        let result_p1 = GameResult {
-            player: game.player1.clone(),
-            acertos: p2_submitted_proof.acertos,
-            erros: p2_submitted_proof.erros,
-            permutados: p2_submitted_proof.permutados,
-        };
-
-        let result_p2 = GameResult {
-            player: game.player2.clone(),
-            acertos: p1_submitted_proof.acertos,
-            erros: p1_submitted_proof.erros,
-            permutados: p1_submitted_proof.permutados,
-        };
-
-        match (p1_guessed_correctly, p2_guessed_correctly) {
-            (true, true) => {
-                game.status = GameStatus::Draw;
-                game.winner = None;
-            }
-            (true, false) => {
-                game.status = GameStatus::Winner;
-                game.winner = Some(game.player1.clone());
-            }
-            (false, true) => {
+            if !is_valid {
+                // Fraude detectada. Player 2 ganha automaticamente.
                 game.status = GameStatus::Winner;
                 game.winner = Some(game.player2.clone());
+                env.storage().temporary().set(&key, &game);
+                return Ok(None); // Ou um erro customizado "FraudDetected"
             }
-            (false, false) => {
-                game.status = GameStatus::Playing;
-                game.player1_proof = vec![&env];
-                game.player2_proof = vec![&env];
-                game.player1_last_guess = None;
-                game.player2_last_guess = None;
+            // Marca a prova 1 como verificada
+            game.p2_proof_verified = true;
+            env.storage().temporary().set(&key, &game);
+        } else if caller == game.player2 && !game.p1_proof_verified {
+            let p1_proof = game.player1_proof.get(0).ok_or(Error::InvalidStatus)?;
+            let p1_secret = game
+                .player1_secret_hash
+                .clone()
+                .ok_or(Error::InvalidStatus)?;
+
+            // Player 2 prova seu segredo contra o palpite do Player 1
+            let is_valid = Self::verify_zk_proof_internal(&env, &p1_proof, &p1_secret, p2_guess);
+
+            if !is_valid {
+                // Fraude detectada. Player 1 ganha automaticamente.
+                game.status = GameStatus::Winner;
+                game.winner = Some(game.player1.clone());
+                env.storage().temporary().set(&key, &game);
+                return Ok(None);
             }
+            // Marca a prova 2 como verificada
+            game.p1_proof_verified = true;
+            env.storage().temporary().set(&key, &game);
         }
 
-        game.player1_result = vec![&env, result_p1.clone()];
-        game.player2_result = vec![&env, result_p2.clone()];
+        // SE AS DUAS JÁ FORAM VERIFICADAS (Nesta transação ou na anterior), FINALIZA O ROUND
+        if game.p1_proof_verified && game.p2_proof_verified {
+            let p1_proof = game.player1_proof.get(0).unwrap();
+            let p2_proof = game.player2_proof.get(0).unwrap();
 
-        env.storage().temporary().set(&key, &game);
-        env.storage()
-            .temporary()
-            .extend_ttl(&key, GAME_TTL_LEDGERS, GAME_TTL_LEDGERS);
+            let p2_guessed_correctly = p1_proof.acertos == 3;
+            let p1_guessed_correctly = p2_proof.acertos == 3;
 
-        if game.status == GameStatus::Draw || game.status == GameStatus::Winner {
-            let hub_addr: Address = env
-                .storage()
-                .instance()
-                .get(&DataKey::GameHubAddress)
-                .unwrap();
-            let hub = GameHubClient::new(&env, &hub_addr);
-            let player1_won = game.winner.as_ref().map_or(false, |w| w == &game.player1);
-            hub.end_game(&session_id, &player1_won);
+            let result_p1 = GameResult {
+                player: game.player1.clone(),
+                acertos: p2_proof.acertos,
+                erros: p2_proof.erros,
+                permutados: p2_proof.permutados,
+            };
+
+            let result_p2 = GameResult {
+                player: game.player2.clone(),
+                acertos: p1_proof.acertos,
+                erros: p1_proof.erros,
+                permutados: p1_proof.permutados,
+            };
+
+            match (p1_guessed_correctly, p2_guessed_correctly) {
+                (true, true) => {
+                    game.status = GameStatus::Draw;
+                    game.winner = None;
+                }
+                (true, false) => {
+                    game.status = GameStatus::Winner;
+                    game.winner = Some(game.player1.clone());
+                }
+                (false, true) => {
+                    game.status = GameStatus::Winner;
+                    game.winner = Some(game.player2.clone());
+                }
+                (false, false) => {
+                    game.status = GameStatus::Playing;
+                    // Prepara para o próximo round
+                    game.player1_proof = vec![&env];
+                    game.player2_proof = vec![&env];
+                    game.player1_last_guess = None;
+                    game.player2_last_guess = None;
+                    game.p1_proof_verified = false; // Reseta as flags!
+                    game.p2_proof_verified = false;
+                }
+            }
+
+            game.player1_result = vec![&env, result_p1.clone()];
+            game.player2_result = vec![&env, result_p2.clone()];
+
+            env.storage().temporary().set(&key, &game);
+            env.storage()
+                .temporary()
+                .extend_ttl(&key, GAME_TTL_LEDGERS, GAME_TTL_LEDGERS);
+
+            if game.status == GameStatus::Draw || game.status == GameStatus::Winner {
+                let hub_addr: Address = env
+                    .storage()
+                    .instance()
+                    .get(&DataKey::GameHubAddress)
+                    .unwrap();
+                let hub = GameHubClient::new(&env, &hub_addr);
+                let player1_won = game.winner.as_ref().map_or(false, |w| w == &game.player1);
+                hub.end_game(&session_id, &player1_won);
+            }
+
+            return Ok(Some((result_p1, result_p2)));
         }
 
-        Ok((result_p1, result_p2))
+        // Se chegou aqui, apenas uma das provas foi verificada (ou P1 ou P2).
+        // Retornamos um erro "benigno" indicando que falta a verificação do oponente.
+        // O frontend pode ignorar esse erro especificamente.
+        Ok(None)
     }
 
     // Renamed to avoid conflicts and made internal-only (not a contract endpoint)

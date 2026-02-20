@@ -245,6 +245,19 @@ export function PassGame({
       const game = await passService.getGame(sessionId);
       setGameState(game);
 
+      if (game && game.player1_result?.length > 0 && game.player2_result?.length > 0) {
+        // Pegamos o último resultado (fim do array)
+        const p1Res = game.player1_result[game.player1_result.length - 1];
+        const p2Res = game.player2_result[game.player2_result.length - 1];
+
+        // Se sou P1, meu feedback é o resultado do MEU palpite (validado pelo P2)
+        // No contrato, result_p1 guarda o resultado do palpite do Player 1
+        setProofFeedback({
+          myFeedback: isPlayer1 ? p1Res : p2Res,
+          opponentFeedback: isPlayer1 ? p2Res : p1Res
+        });
+      }
+
       // Determine game phase based on state
       const isTerminal = game && (
         (game.winner !== null && game.winner !== undefined) ||
@@ -941,113 +954,68 @@ export function PassGame({
 
   // Auto-call verifyProof when both players have submitted their proofs
   useEffect(() => {
-    // Check if game is already in a terminal state
-    const isTerminal = gameState?.winner ||
-      gameState?.status.tag === 'Winner' ||
-      gameState?.status.tag === 'Draw' ||
-      gameState?.status.tag === 'Finished';
+    if (!gameState || gamePhase !== 'guess') return;
 
-    if (gamePhase !== 'guess' || isTerminal || !gameState || !player1ProofSubmitted || !player2ProofSubmitted) {
-      return;
+    const isTerminal = gameState.winner ||
+      ['Winner', 'Draw', 'Finished'].includes(gameState.status.tag);
+    if (isTerminal) return;
+
+    // DETERMINA SE EU TENHO ALGO PARA VERIFICAR NA BLOCKCHAIN
+    // Lógica cruzada: 
+    // Se sou P1: Eu verifico se a prova do P2 está lá, mas a flag de verificação do P2 ainda é false.
+    // Se sou P2: Eu verifico se a prova do P1 está lá, mas a flag de verificação do P1 ainda é false.
+
+    const p1HasProof = (gameState.player1_proof?.length ?? 0) > 0;
+    const p2HasProof = (gameState.player2_proof?.length ?? 0) > 0;
+
+    // Eu sou o Player 1 e preciso validar o Player 2?
+    const iNeedToVerifyP2 = isPlayer1 && p2HasProof && !gameState.p2_proof_verified;
+
+    // Eu sou o Player 2 e preciso validar o Player 1?
+    const iNeedToVerifyP1 = isPlayer2 && p1HasProof && !gameState.p1_proof_verified;
+
+    if (!iNeedToVerifyP1 && !iNeedToVerifyP2) {
+      return; // Nada para este jogador fazer no momento
     }
 
     const verifyAndComplete = async () => {
       try {
         if (isVerifyingRef.current) return;
         isVerifyingRef.current = true;
-        console.log('[AutoVerify] Both proofs submitted, calling verify_proof...');
+
+        console.log(`[AutoVerify] Detectada prova do oponente pendente. Validando como ${isPlayer1 ? 'P1' : 'P2'}...`);
         const signer = getContractSigner();
 
-        // Use a local try-catch for the contract call to handle idempotency
-        let verifyResult;
-        try {
-            verifyResult = await passService.verifyProof(sessionId, userAddress, signer);
-            console.log('Verificacao funcionou:', verifyResult);
-        } catch (err: any) {
-            // ✅ InvalidStatus significa que outro player já verificou — não é erro crítico
-            if (err.message?.includes('InvalidStatus') || err.message?.includes('Error(Contract, #6)')) {
-                console.log('[AutoVerify] Jogo já verificado por outro player, buscando estado...');
-                // Apenas busca o estado atual sem tratar como erro
-            } else {
-                throw err;
-            }
-        }
+        // O verifyResult será null/undefined se for o primeiro a validar (Ok(None) no Rust)
+        // O verifyResult terá os dados se for o segundo a validar (Ok(Some) no Rust)
+        const verifyResult = await passService.verifyProof(sessionId, userAddress, signer);
 
-        // Fetch updated on-chain state
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        const updatedGame = await passService.getGame(sessionId);
-        console.log('[AutoVerify] Updated game state:', updatedGame);
+        console.log('[AutoVerify] Transação de verificação enviada com sucesso!');
 
-        if (!updatedGame) return;
-        setGameState(updatedGame);
-
-        // Preencher feedback com resultados reais do contrato
-        // player1_result contém o resultado do palpite do Player 1 (validado pelo P2)
-        // player2_result contém o resultado do palpite do Player 2 (validado pelo P1)
-        if (updatedGame.player1_result?.[0] && updatedGame.player2_result?.[0]) {
-          const p1Res = updatedGame.player1_result[0];
-          const p2Res = updatedGame.player2_result[0];
-
-          setProofFeedback({
-            myFeedback: isPlayer1 ? p1Res : p2Res,
-            opponentFeedback: isPlayer1 ? p2Res : p1Res
-          });
-        }
-
-        // Reset proof states and guesses ONLY if the game continues (Status is Playing)
-        // If it's Winner or Draw, we stay in 'complete' phase.
-        if (updatedGame.status.tag === 'Playing') {
-          console.log('[AutoVerify] No winner yet, game continues for next round');
-          setLastProofResult('Ninguém acertou esta rodada. Faça outro palpite!');
-          setSuccess('Jogo continua! Ninguém acertou ainda.');
-
-          // Reset states for NEXT round
-          setPlayer1ProofSubmitted(false);
-          setPlayer2ProofSubmitted(false);
-          setGuess(null);
-        } else if (updatedGame.winner || updatedGame.status.tag === 'Winner' || updatedGame.status.tag === 'Draw') {
-          // Game ended
-          console.log('[AutoVerify] Game ended with status:', updatedGame.status.tag);
-          setGamePhase('complete');
-
-          // Reset proof states to stop the effect loop
-          setPlayer1ProofSubmitted(false);
-          setPlayer2ProofSubmitted(false);
-
-          if (updatedGame.winner) {
-            const isWinner = updatedGame.winner === userAddress;
-            setSuccess(isWinner ? '🎉 Você venceu!' : '💔 Você perdeu!');
-          } else {
-            setSuccess('🤝 Empate! Ambos acertaram!');
-          }
-          onStandingsRefresh();
-        }
-      } catch (err) {
-        console.error('[AutoVerify] Error verifying proofs:', err);
-        const errorMsg = err instanceof Error ? err.message : 'Erro ao verificar provas';
-
-        // If the error is that both players haven't submitted yet, just wait
-        if (errorMsg.includes('InvalidStatus') || errorMsg.includes('BothPlayersNotGuessed')) {
-          console.log('[AutoVerify] Verification state not ready yet, will retry on next poll');
+        if (verifyResult) {
+          console.log('[AutoVerify] Eu finalizei a rodada! Resultados:', verifyResult);
         } else {
-          console.error('[AutoVerify] Critical verification failure:', errorMsg);
+          console.log('[AutoVerify] Minha validação foi registrada. Aguardando oponente...');
         }
-      }
-      finally {
+
+        // Força uma atualização imediata do estado para refletir a flag de verificação
+        await loadGameState();
+
+      } catch (err: any) {
+        console.error('[AutoVerify] Erro na verificação:', err.message);
+      } finally {
         setTimeout(() => {
           isVerifyingRef.current = false;
         }, 2000);
       }
     };
 
-    console.log('[AutoVerify] Condition met for verification');
-
-    // Add random jitter (0-2 seconds) to avoid both players sending the transaction at the exact same time
-    const jitter = Math.floor(Math.random() * 2000);
-    const timeoutId = setTimeout(verifyAndComplete, 1000 + jitter);
+    // Jitter para evitar que ambos batam no node no mesmo milissegundo
+    const jitter = Math.floor(Math.random() * 1000);
+    const timeoutId = setTimeout(verifyAndComplete, 500 + jitter);
 
     return () => clearTimeout(timeoutId);
-  }, [gamePhase, player1ProofSubmitted, player2ProofSubmitted, sessionId, gameState]);
+  }, [gameState, gamePhase, userAddress, isPlayer1, isPlayer2]);
 
   /* 
    * Converte string para BigInt para uso como Salt no Poseidon 
@@ -1068,7 +1036,7 @@ export function PassGame({
     return await calculateHash(numValue, SALT);
   };
 
-  
+
 
   const handleSubmitProof = async () => {
     await runAction(async () => {
@@ -1124,10 +1092,10 @@ export function PassGame({
 
           console.log('[DEBUG] Número de public inputs:', publicInputs.length);
           publicInputs.forEach((input, i) => {
-              console.log(`[DEBUG] Public Input ${i} (raw):`, input);
-              // Converte para bytes para inspecionar o encoding
-              const bytes = Uint8Array.from(Buffer.from(input.replace('0x', ''), 'hex'));
-              console.log(`[DEBUG] Public Input ${i} (bytes hex):`, Buffer.from(bytes).toString('hex'));
+            console.log(`[DEBUG] Public Input ${i} (raw):`, input);
+            // Converte para bytes para inspecionar o encoding
+            const bytes = Uint8Array.from(Buffer.from(input.replace('0x', ''), 'hex'));
+            console.log(`[DEBUG] Public Input ${i} (bytes hex):`, Buffer.from(bytes).toString('hex'));
           });
 
           proofToSubmit = proof;
@@ -1135,7 +1103,7 @@ export function PassGame({
           console.log('[SubmitProof] PROVA ZK GERADA COM SUCESSO!');
           console.log('[SubmitProof] Proof (hex):', proofToSubmit);
           console.log('[SubmitProof] Public Inputs:', publicInputs);
-          
+
           publicInputs.forEach((input, i) => {
             const hex = Buffer.from(input).toString('hex');
             console.log(`[SubmitProof] Public Input ${i}:`, hex);
@@ -1171,7 +1139,7 @@ export function PassGame({
           proofLength: proofToSubmit?.length || 0
         });
 
-        
+
         await passService.submitProof(
           sessionId,
           userAddress,
@@ -1191,17 +1159,8 @@ export function PassGame({
 
         setSuccess('✓ Prova enviada! Aguardando a prova do outro jogador...');
 
-        // STEP 3: Fetch updated on-chain state
-        console.log('[SubmitProof] Fetching updated game state...');
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        const updatedGame = await passService.getGame(sessionId);
-        console.log('[SubmitProof] Updated game state:', updatedGame);
-
-        setGameState(updatedGame);
-
-        // NOTE: verifyProof will be called automatically by the polling mechanism
-        // when both players have submitted their proofs.
-        // Do NOT call verifyProof here - it will fail if the other player hasn't submitted yet!
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        await loadGameState();
       } catch (err) {
         console.error('Submit proof error:', err);
 
