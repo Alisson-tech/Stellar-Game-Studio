@@ -23,5 +23,9 @@ panic = "abort"
 codegen-units = 1
 lto = true
 
+[profile.release.package."*"]
+overflow-checks = false
+opt-level = "s"
+
 [patch.crates-io]
 soroban-sdk = { git = "https://github.com/stellar/rs-soroban-sdk", rev = "acffbbd45be6a0a551146eebfc268d6f95078246" }

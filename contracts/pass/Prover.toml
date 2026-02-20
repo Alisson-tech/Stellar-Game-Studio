@@ -1,10 +1,10 @@
 # Private Inputs
-secret = ["4", "5", "6"]
-salt = "123"
+secret = ["1", "2", "3"]
+salt = "0x6d696e68612d73616c74"
 
 # Public Inputs (Devem ser o resultado real do cálculo acima)
-guess = ["9", "8", "4"]
-hash = "0x2c1d0112886cb37c670583828d19abee0d321be8d2ebf0adce5aaa68061ee7c5"
-acertos = 0
-permutados = 1
-erros = 2
+guess = ["3", "2", "1"]
+hash = "0x250476e2490ba30520aa558906ea14946f609151ad854f169d6e95f36bfcf566"
+acertos = 1
+permutados = 2
+erros = 0

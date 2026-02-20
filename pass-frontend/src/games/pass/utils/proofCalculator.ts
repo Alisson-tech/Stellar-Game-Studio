@@ -120,7 +120,7 @@ export async function proveTurn(
     salt: string,
     guess: number,
     stats: ProofStats,
-):  Promise<{ proof: Uint8Array; publicInputs: string[] }> {
+): Promise<{ proof: Uint8Array; publicInputs: string[] }> {
     // Importar dinamicamente para evitar erros de SSR se necessário, 
     // mas aqui estamos no client-side.
     // O circuito deve ser importado. Assumindo que o usuário colocou o JSON em ../circuit.json
@@ -157,8 +157,8 @@ export async function proveTurn(
 
     // Normalize salt directly to field-compatible string (hex)
     const saltBn = normalizeSalt(salt);
-    const saltField = '0x' + saltBn.toString(16).padStart(64, '0'); 
-    
+    const saltField = '0x' + saltBn.toString(16).padStart(64, '0');
+
     const hashBuffer = await calculateHash(secret, salt);
     // Para o Noir (ele precisa do 0x para entender que é HEX)
     const hashField = `0x${hashBuffer.toString('hex').padStart(64, '0')}`;
@@ -169,7 +169,7 @@ export async function proveTurn(
     console.log('[proveTurn] Hash (from contract):', hashField);
 
     console.log('secrect Hash:', hashField);
-    
+
     const input = {
         secret: secretStr,
         salt: saltField, // Pass formatted salt, not raw string
@@ -180,16 +180,13 @@ export async function proveTurn(
         erros: stats.erros
     };
 
+
     try {
         // 1. Generate Witness
         const { witness } = await noir.execute(input);
 
         // 2. Generate Proof
-        const proofData = await backend.generateProof(witness);
-
-        // proofData contains proof and publicInputs
-        // proofData.proof is Uint8Array
-        // proofData.publicInputs is Uint8Array[] (array of fields)
+        const proofData = await backend.generateProof(witness, { keccak: true }); // { keccak: true }
 
         return {
             proof: proofData.proof,
@@ -201,7 +198,7 @@ export async function proveTurn(
             message: err.message,
             stack: err.stack
         });
-        
+
         throw new Error(`Proof generation failed: ${err.message}`);
     }
 }

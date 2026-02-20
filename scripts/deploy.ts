@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readEnvFile, getEnvValue } from './utils/env';
 import { getWorkspaceContracts, listContractNames, selectContracts } from "./utils/contracts";
-
+import { writeFileSync, unlinkSync } from "fs";
 
 type StellarKeypair = {
   publicKey(): string;
@@ -148,9 +148,9 @@ for (const contract of contracts) {
 
   // Para o contrato "pass", verificar se a VK foi gerada
   if (contract.packageName === "pass") {
-    const vkPath = join(process.cwd(), "contracts/pass/target/vk/vk");
+    const vkPath = join(process.cwd(), "contracts/pass/target/vk");
     if (!existsSync(vkPath)) {
-      console.error("❌ VK não encontrada em contracts/pass/target/vk.bin/vk");
+      console.error("❌ VK não encontrada em contracts/pass/target/vk/vk");
       console.error("  Gere a VK com o Docker antes de fazer o deploy:");
       console.error("  docker run -it --rm -v $(pwd)/contracts/pass:/circuit vk-builder bash -c \\");
       console.error("    \"nargo compile && bb write_vk -b ./target/pass_circuit.json -o ./target/vk\"");
@@ -354,27 +354,38 @@ for (const contract of contracts) {
           console.log("  ✅ Initialize concluído!");
 
           // 2. Enviar VK via arquivo temporário (evita limite de tamanho de argumento no shell)
-          const vkPath = join(process.cwd(), "contracts/pass/target/vk/vk");
+          const vkPath = join(process.cwd(), "contracts/pass/target/vk");
           console.log("  📤 Lendo VK...");
-
           const vkBuffer = await Bun.file(vkPath).arrayBuffer();
-          // Convertemos para Hex apenas para o CLI do Stellar conseguir transportar no comando
           const vkHex = Buffer.from(vkBuffer).toString('hex');
-
           console.log(`  📦 VK: ${vkHex.length / 2} bytes (${vkHex.length} hex chars)`);
+
+          // Escreve o hex em arquivo temporário para evitar problemas de shell
+          const tmpFile = join(process.cwd(), ".vk_tmp.hex");
+          writeFileSync(tmpFile, vkHex);
 
           try {
             console.log("  📤 Enviando VK ao contrato...");
+            
+            // Lê do arquivo para evitar problemas com argumentos longos no shell
+            const vkArg = `${vkHex}`;
+
+            console.log(`  📤 VK argument length: ${vkArg.length} chars`);
+            console.log(`  📤 VK argument: ${vkArg}`);
+            
             await $`stellar contract invoke \
               --id ${contractId} \
               --source-account ${adminSecret} \
               --network ${NETWORK} \
               -- set_verification_key \
-              --vk ${vkHex}`;
+              --vk ${vkArg}`;
+              
             console.log("  ✅ VK configurada com sucesso!");
           } catch (err) {
             console.error("❌ Failed to set VK on contract:", err);
             throw err;
+          } finally {
+            unlinkSync(tmpFile);
           }
         }
 
