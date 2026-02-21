@@ -94,6 +94,9 @@ By combining **Stellar/Soroban** smart contracts with **Noir ZK-Circuits**, ZK P
 - **Frontend**: React + TypeScript
 - **Blockchain**: Stellar
 
+> [!IMPORTANT]
+> **Technical Specifications**: For detailed information on the Noir circuit logic, Docker setup for VK generation, and automated deployment flow, please refer to the [Contract Documentation](../contracts/pass/README.md).
+
 ---
 
 ## 📦 Project Structure

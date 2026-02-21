@@ -1,129 +1,120 @@
-# Pass Game
+# ZK PASS Smart Contract
 
-A simple two-player guessing game smart contract built on Stellar's Soroban platform.
+This directory contains the Soroban smart contract and Noir ZK circuits for the **ZK PASS** game.
 
 ## Overview
 
-Players compete by guessing a number between 1 and 10. The player whose guess is closest to the randomly generated number wins.
+The contract manages the game state, handles secret commitments, accepts guesses, and verifies Zero-Knowledge proofs to ensure fair play without revealing player secrets.
 
 ## Features
 
-- **Random Number Generation**: Uses Soroban's PRNG to generate fair random numbers
-- **Two-Player Games**: Each game involves exactly two players
-- **Simple Rules**: Guess a number 1-10, closest guess wins
-- **Multiple Concurrent Games**: Support for multiple independent games running simultaneously
-- **Event Emissions**: All game actions emit events for tracking
+- **ZK-Mastermind Logic**: Implements 3-digit number guessing with cryptographic feedback.
+- **On-chain Verification**: Uses `ultrahonk-soroban-verifier` to validate ZK proofs.
+- **Game Hub Integration**: Standardizes game lifecycle through a centralized Hub.
+- **Fraud Detection**: Automatically handles invalid proofs and attempts to cheat.
 
-## Contract Methods
+---
 
-### `start_game`
-Start a new game between two players.
+## Zero-Knowledge Circuit (Noir)
 
-**Parameters:**
-- `player1: Address` - First player's address
-- `player2: Address` - Second player's address
+The game's cryptographic logic is implemented in [Noir](https://noir-lang.org/), a domain-specific language for Zero-Knowledge circuits.
 
-**Returns:** `u32` - The game ID
+### Circuit Logic ([src/main.nr](src/main.nr))
+- **Commitment Verification**: Checks that the `secret` and `salt` provided match the on-chain hash.
+- **Feedback Computation**: Calculates the number of **Correct**, **Misplaced**, and **Wrong** digits for a given guess.
+- **Constraint Enforcement**: Ensures the player cannot provide false feedback about their secret.
 
-**Auth:** Requires authentication from both players
+### Compilation and Setup (Docker)
+Due to `glibc` version dependencies on certain Linux distributions (like Ubuntu), it is recommended to use the provided Docker environment to compile the circuit and generate the **Verification Key (VK)**.
 
-### `make_guess`
-Make a guess for a game.
+The `dockerfile-vk` ensures a consistent environment with:
+- **Nargo**: v1.0.0-beta.9
+- **Barretenberg (bb)**: v0.87.0
 
-**Parameters:**
-- `game_id: u32` - The ID of the game
-- `player: Address` - Address of the player making the guess
-- `guess: u32` - The guessed number (must be 1-10)
+#### 1. Build & Run the Compiler Container
+```bash
+# Build the image
+docker build -t noir-compiler -f dockerfile-vk .
 
-**Returns:** `Result<(), Error>`
+# Run the container with current directory mounted
+docker run --rm -it -v $(pwd):/circuit noir-compiler bash
+```
 
-**Auth:** Requires authentication from the guessing player
+#### 2. Generate Verification Key (Inside Container)
+Once inside the container, execute the following commands to compile the circuit and generate the VK:
 
-### `reveal_winner`
-Reveal the winner after both players have guessed.
+```bash
+# Compile the Noir circuit
+nargo compile
 
-**Parameters:**
-- `game_id: u32` - The ID of the game
+# Generate the Verification Key (UltraHonk scheme with Keccak mapping)
+bb write_vk -b target/pass_circuit.json -o target --scheme ultra_honk --oracle_hash keccak
 
-**Returns:** `Result<Address, Error>` - Address of the winning player
+# Execute the circuit to generate witness (optional for testing)
+nargo execute witness
 
-**Note:** Can only be called after both players have made their guesses. If both players are equidistant from the winning number, player1 wins.
+# Generate a test proof (optional)
+bb prove -b target/pass_circuit.json -w target/witness.gz -o target --scheme ultra_honk --oracle_hash keccak
 
-### `get_game`
-Get the current state of a game.
+# Verify the test proof (optional)
+bb verify -k target/vk -p target/proof --scheme ultra_honk --oracle_hash keccak
 
-**Parameters:**
-- `game_id: u32` - The ID of the game
+# Check public inputs size and format
+wc -c target/public_inputs
+od -t x1 target/public_inputs | head -20
+```
 
-**Returns:** `Result<Game, Error>` - The game state
+The resulting `target/vk` file is what needs to be registered in the smart contract to enable on-chain verification.
 
-## Game Flow
+---
 
-1. Two players call `start_game` to create a new game
-2. A random number between 1-10 is generated using PRNG
-3. Each player calls `make_guess` with their guess (1-10)
-4. Once both players have guessed, anyone can call `reveal_winner`
-5. The winner is determined by who guessed closest to the random number
-6. The game is marked as ended and the winner is recorded
+## Contract Implementation ([src/lib.rs](src/lib.rs))
 
-## Events
+### Key Methods
 
-- **GameStartedEvent**: Emitted when a new game begins
-  - `game_id: u32`
-  - `player1: Address`
-  - `player2: Address`
+- `start_game`: Initializes a session between two players.
+- `register_secret`: Stores a Pedersen hash of the player's secret.
+- `submit_guess`: Records a player's numeric guess.
+- `submit_proof`: Stores the feedback results and the ZK proof.
+- `verify_proof`: The core logic that reconstructs public inputs and calls the `UltraHonkVerifier`.
 
-- **GuessMadeEvent**: Emitted when a player makes a guess
-  - `game_id: u32`
-  - `player: Address`
-  - `guess: u32`
+### Verification Logic
+The `verify_zk_proof_internal` function translates the game state into the public input format expected by the circuit:
+1. **Guess digits** (3x 32-byte fields)
+2. **Committed hash** (1x 32-byte field)
+3. **Feedback results** (3x 32-byte fields - Correct, Misplaced, Wrong)
 
-- **WinnerRevealedEvent**: Emitted when the winner is revealed
-  - `game_id: u32`
-  - `winner: Address`
-  - `winning_number: u32`
+---
 
-## Error Codes
+## Automated Deployment
 
-- `GameNotFound` (1): The specified game ID doesn't exist
-- `GameAlreadyStarted` (2): Game has already been started
-- `NotPlayer` (3): Caller is not a player in this game
-- `AlreadyGuessed` (4): Player has already made their guess
-- `BothPlayersNotGuessed` (5): Cannot reveal winner until both players guess
-- `GameAlreadyEnded` (6): Game has already ended
+The project includes an automated deployment script at [scripts/deploy.ts](../../scripts/deploy.ts) that handles the entire testnet setup for the **pass** contract.
 
-## Building
+### Deployment Flow
+When running `bun run deploy pass`, the script performs the following specialized steps:
+
+1. **VK Verification**: Ensures that the Verification Key exists at `contracts/pass/target/vk` (generated via Docker).
+2. **Contract Deployment**: Uploads the WASM and deploys the contract instance to Stellar Testnet.
+3. **Initialization**: Automatically calls the `initialize` method with the current admin and Game Hub addresses.
+4. **VK Registration**: Converts the local `vk` file to hex and registers it on-chain via the `set_verification_key` method.
+5. **Environment Update**: Saves the new contract ID to `deployment.json` and `.env` for the frontend.
+
+### Usage
+```bash
+# Deploys and configures the pass contract automatically
+bun run deploy pass
+```
+
+## Building the Contract
 
 ```bash
 stellar contract build
 ```
 
-Output: `target/wasm32v1-none/release/number_guess.wasm`
+The compiled WASM will be located at `target/wasm32-unknown-unknown/release/pass.wasm`.
 
-## Testing
+## Technical Notes
 
-```bash
-cargo test
-```
-
-## Example Usage
-
-```rust
-use soroban_sdk::{Address, Env};
-
-// Create game
-let game_id = contract.start_game(&player1, &player2);
-
-// Players make guesses
-contract.make_guess(&game_id, &player1, &5);
-contract.make_guess(&game_id, &player2, &7);
-
-// Reveal winner
-let winner = contract.reveal_winner(&game_id);
-```
-
-## Technical Details
-
-- **PRNG Warning**: The contract uses Soroban's PRNG which is unsuitable for generating secrets or high-stakes applications. It's perfectly fine for game mechanics where the random number is revealed immediately after use.
-- **Storage**: Uses persistent storage for game state
-- **Gas Optimization**: Minimal storage footprint per game
+- **Circuit Path**: The UI expects the circuit artifact at `pass-frontend/src/games/pass/circuit.json`.
+- **Backend**: Uses the **UltraHonk** proof system for optimized on-chain verification costs on Soroban.
+- **Oracle Hash**: The `keccak` flag is mandatory for compatibility with the project's verifier implementation.
