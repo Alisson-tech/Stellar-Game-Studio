@@ -401,6 +401,7 @@ impl PassContract {
         if game.p1_proof_verified && game.p2_proof_verified {
             if game.p1_is_fraud && game.p2_is_fraud {
                 game.status = GameStatus::Draw;
+                game.winner = None;
             } else if game.p1_is_fraud {
                 game.status = GameStatus::Winner;
                 game.winner = Some(game.player2.clone());
@@ -429,28 +430,30 @@ impl PassContract {
                 permutados: p1_proof.permutados,
             };
 
-            match (p1_guessed_correctly, p2_guessed_correctly) {
-                (true, true) => {
-                    game.status = GameStatus::Draw;
-                    game.winner = None;
-                }
-                (true, false) => {
-                    game.status = GameStatus::Winner;
-                    game.winner = Some(game.player1.clone());
-                }
-                (false, true) => {
-                    game.status = GameStatus::Winner;
-                    game.winner = Some(game.player2.clone());
-                }
-                (false, false) => {
-                    game.status = GameStatus::Playing;
-                    // Prepara para o próximo round
-                    game.player1_proof = vec![&env];
-                    game.player2_proof = vec![&env];
-                    game.player1_last_guess = None;
-                    game.player2_last_guess = None;
-                    game.p1_proof_verified = false; // Reseta as flags!
-                    game.p2_proof_verified = false;
+            if !game.p1_is_fraud && !game.p2_is_fraud {
+                match (p1_guessed_correctly, p2_guessed_correctly) {
+                    (true, true) => {
+                        game.status = GameStatus::Draw;
+                        game.winner = None;
+                    }
+                    (true, false) => {
+                        game.status = GameStatus::Winner;
+                        game.winner = Some(game.player1.clone());
+                    }
+                    (false, true) => {
+                        game.status = GameStatus::Winner;
+                        game.winner = Some(game.player2.clone());
+                    }
+                    (false, false) => {
+                        game.status = GameStatus::Playing;
+                        // Prepara para o próximo round
+                        game.player1_proof = vec![&env];
+                        game.player2_proof = vec![&env];
+                        game.player1_last_guess = None;
+                        game.player2_last_guess = None;
+                        game.p1_proof_verified = false; // Reseta as flags!
+                        game.p2_proof_verified = false;
+                    }
                 }
             }
 
