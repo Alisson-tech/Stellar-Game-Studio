@@ -26,10 +26,24 @@ Feedback is categorized into three types:
 - **Misplaced**: The digit exists in the secret but is in the wrong position.
 - **Wrong**: The digit does not exist in the secret.
 
+### Example
+
+Secret: 123
+Guess: 134
+
+feedback:
+ - 1 correct
+ - 1 misplaced
+ - 1 wrong
 
 
+correct = 1 <br>
+misplaced = 3 <br>
+wrong = 4 <br>
 
 ---
+
+![rules](./img-docs/rules.jpg)
 
 ## Zero-Knowledge Architecture
 ZK PASS is built on a **Zero-Trust** foundation:

@@ -109,10 +109,7 @@ export function PassGame({
   const [player1ProofSubmitted, setPlayer1ProofSubmitted] = useState(false);
   const [player2ProofSubmitted, setPlayer2ProofSubmitted] = useState(false);
   const [lastProofResult, setLastProofResult] = useState<string | null>(null);
-  const [proofFeedback, setProofFeedback] = useState<{
-    myFeedback: ProofStats | null;
-    opponentFeedback: ProofStats | null;
-  } | null>(null);
+  /* REMOVED: proofFeedback state. Now using derived currentFeedback constant. */
   const isVerifyingRef = useRef(false);
 
   // Hook para gerenciar secrets locais de AMBOS os players
@@ -129,31 +126,32 @@ export function PassGame({
     }
   }, [createMode, importPlayer2Points]);
 
+  const isP1 = !!gameState && gameState.player1.toLowerCase() === userAddress.toLowerCase();
+  const isP2 = !!gameState && gameState.player2.toLowerCase() === userAddress.toLowerCase();
+  const isPlayer1 = isP1;
+  const isPlayer2 = isP2;
+
   /**
-   * Quando o userAddress muda (alternando carteiras),
-   * recalcular o feedback para mostrar o resultado CORRETO para o novo player
+   * Derived feedback based on current gameState and userAddress.
+   * Ensures UI always shows the correct perspective based on contract data.
    */
-  useEffect(() => {
-    if (!gameState || !proofFeedback) return;
+  const currentFeedback = (() => {
+    if (!gameState) return null;
 
-    // Se mudou de player (userAddress diferente), reagrupar feedback
-    console.log(`[FeedbackRecalc] Player trocado: ${userAddress.slice(0, 8)}..., recarregando feedback`);
-
-    // Reconfigurar feedback para o novo player
     const p1Results = gameState.player1_result || [];
     const p2Results = gameState.player2_result || [];
 
-    if (p1Results.length > 0 && p2Results.length > 0) {
-      const p1Res = p1Results[p1Results.length - 1];
-      const p2Res = p2Results[p2Results.length - 1];
-      const newIsPlayer1 = gameState.player1 === userAddress;
+    if (p1Results.length === 0 || p2Results.length === 0) return null;
 
-      setProofFeedback({
-        myFeedback: newIsPlayer1 ? p1Res : p2Res,
-        opponentFeedback: newIsPlayer1 ? p2Res : p1Res
-      });
-    }
-  }, [userAddress]);
+    // Use latest results
+    const p1Res = p1Results[p1Results.length - 1];
+    const p2Res = p2Results[p2Results.length - 1];
+
+    return {
+      myFeedback: isPlayer1 ? p1Res : p2Res,
+      opponentFeedback: isPlayer1 ? p2Res : p1Res
+    };
+  })();
 
   const POINTS_DECIMALS = 7;
   const isBusy = loading || quickstartLoading;
@@ -175,23 +173,11 @@ export function PassGame({
     }
   };
 
-  const isPlayer1 = gameState && gameState.player1 === userAddress;
-  const isPlayer2 = gameState && gameState.player2 === userAddress;
   const hasGuessed = isPlayer1 ? gameState?.player1_last_guess !== null && gameState?.player1_last_guess !== undefined :
     isPlayer2 ? gameState?.player2_last_guess !== null && gameState?.player2_last_guess !== undefined : false;
 
-  /**
-   * Calcula o feedback DINÂMICO para o player ATUAL
-   * Cada player vê feedback diferente baseado em seu secret local
-   * 
-   * Player 1 vê: feedback de seu palpite vs secret do player 2 (usando secret local do p1)
-   * Player 2 vê: feedback de seu palpite vs secret do player 1 (usando secret local do p2)
-   */
   const getPlayerFeedback = (): ProofStats | null => {
-    if (!gameState || !proofFeedback) return null;
-
-    // Retorna o feedback do PLAYER ATUAL (myFeedback foi setado corretamente no verifyProof)
-    return proofFeedback.myFeedback;
+    return currentFeedback?.myFeedback || null;
   };
 
   const handleStartNewGame = () => {
@@ -226,7 +212,6 @@ export function PassGame({
     setLastProofResult(null);
     setPlayer1Address(userAddress);
     setPlayer1Points(DEFAULT_POINTS);
-    setProofFeedback(null);
   };
 
   const parsePoints = (value: string): bigint | null => {
@@ -248,22 +233,7 @@ export function PassGame({
       const game = await passService.getGame(sessionId);
       setGameState(game);
 
-      if (game && game.player1_result?.length > 0 && game.player2_result?.length > 0) {
-        // Pegamos o último resultado (fim do array)
-        const p1Res = game.player1_result[game.player1_result.length - 1];
-        const p2Res = game.player2_result[game.player2_result.length - 1];
-
-        // CRITICAL: Calculate fresh player status from the fetched game object
-        // using stale 'isPlayer1' here (derived from previous state) causes feedback flip-flop
-        const currentPlayerIsP1 = game.player1 === userAddress;
-
-        // Se sou P1, meu feedback é o resultado do MEU palpite (validado pelo P2)
-        // No contrato, result_p1 guarda o resultado do palpite do Player 1
-        setProofFeedback({
-          myFeedback: currentPlayerIsP1 ? p1Res : p2Res,
-          opponentFeedback: currentPlayerIsP1 ? p2Res : p1Res
-        });
-      }
+      /* REMOVED: Manual setProofFeedback. Now derived. */
 
       // Determine game phase based on state
       const isTerminal = game && (
@@ -1496,7 +1466,7 @@ export function PassGame({
                 gamePhase={gamePhase === 'setup' ? 'setup' : 'guess'}
                 onSubmit={handleDarkUISubmit}
                 loading={loading}
-                feedback={proofFeedback?.myFeedback}
+                feedback={currentFeedback?.myFeedback}
               />
             ) : (
               // Both players have guessed - show proof submission UI
