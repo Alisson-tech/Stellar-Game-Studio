@@ -130,24 +130,61 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ---
 
 ## 🧩 Architecture Diagram
-```text
-       PLAYER A (Frontend)                      STELLAR (On-Chain)                      PLAYER B (Frontend)
-    +-----------------------+                +-----------------------+                +-----------------------+
-    | [Secret A]            |                | [Game State]          |                | [Secret B]            |
-    | [Noir/UltraHonk]      |                | [Soroban Contract]    |                | [Noir/UltraHonk]      |
-    +-----------+-----------+                +-----------+-----------+                +-----------+-----------+
-                |                                        |                                        |
-                | (1) Hash(Secret A) ------------------->|                                        |
-                |                                        |<------------------- (1) Hash(Secret B) |
-                |                                        |                                        |
-                | (2) Submit Guess B ------------------->|                                        |
-                |                                        |<------------------- (2) Submit Guess A |
-                |                                        |                                        |
-                |                                        |---------- (3) Fetch Guess A ---------->|
-                |                                        |                                        |
-                |<--------- (4) Submit Proof A ----------|<--------- (4) Submit Proof B ----------|
-                |                                        |                                        |
-                |                                        | (5) Verify Proofs                      |
-                |                                        | (6) Determine Winner                   |
-                +----------------------------------------+----------------------------------------+
+
+![texto_alternativo](./img-docs/Circuito%20Verification%20Flow.svg)
+
+
+## Demo
+
+### No fraud Game
+
+
+
+### Fraud Game P1
+Modification `submmitProof` [passService.ts](./src/games/pass/passService.ts)
+
+```javascript
+
+    if (playerAddress == DEV_PLAYER1_ADDRESS) {
+      acertos = 0;
+      permutados = 0;
+      erros = 3;
+    }
+
+    const tx = await client.submit_proof({
+      session_id: sessionId,
+      player: playerAddress,
+      acertos,
+      permutados,
+      erros,
+      proof: proofBytes,
+    }, DEFAULT_METHOD_OPTIONS);
+
 ```
+Player 1 secret - 123
+Player 2 secret - 456
+
+![Secret_no_Fraude](./img-docs/secret_noFraude.png)
+
+Player 1 guess - 453
+Player 2 guess - 321
+
+![Guess_no_Fraude](./img-docs/guess_noFraude.png)
+
+![proof_no_Fraude](./img-docs/proof_noFraude.png)
+
+
+result:
+
+Player 1: 1 correct (5), 1 misplaced (4), 1 wrong (3) - guess 453
+Player 2: 1 correct (2), 2 misplaced (3,1), 0 wrong - guess 321
+
+![Result_no_Fraude](./img-docs/result_noFraude.png)
+
+
+
+
+
+
+### Draw Game (ambos win or both fraud)
+
