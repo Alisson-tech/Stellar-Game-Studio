@@ -93,6 +93,8 @@ The smart contract ([lib.rs](../contracts/pass/src/lib.rs)) uses the `verify_zk_
 - **Winner**: The first player to correctly guess the opponent's 3-digit secret (obtaining 3 "Correct" digits) wins.
 - **Draw**: If both players guess correctly in the same round, the game is declared a Draw.
 
+![winner_rules](./img-docs/winner_rules.jpg)
+
 ---
 
 ## 🧠 Problem Statement
@@ -132,17 +134,14 @@ By combining **Stellar/Soroban** smart contracts with **Noir ZK-Circuits**, ZK P
 └── README.md
 ```
 
+## 🧩 Architecture Diagram
+
+![texto_alternativo](./img-docs/Circuito%20Verification%20Flow.svg)
+
 ## 🚀 Future Improvements
 - Support for variable secret lengths (4+ digits).
 - Competitive ranking system (ELO).
 - Tournament mode with point pooling.
 - Enhanced UI/UX with real-time ZK proof generation status.
+- Refactor the code
 
-## 📜 License
-This project is licensed under the MIT License - see the LICENSE file for details.
-
----
-
-## 🧩 Architecture Diagram
-
-![texto_alternativo](./img-docs/Circuito%20Verification%20Flow.svg)
