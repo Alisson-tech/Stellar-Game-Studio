@@ -140,9 +140,12 @@ export function PassGame({
     console.log(`[FeedbackRecalc] Player trocado: ${userAddress.slice(0, 8)}..., recarregando feedback`);
 
     // Reconfigurar feedback para o novo player
-    if (gameState.player1_result?.[0] && gameState.player2_result?.[0]) {
-      const p1Res = gameState.player1_result[0];
-      const p2Res = gameState.player2_result[0];
+    const p1Results = gameState.player1_result || [];
+    const p2Results = gameState.player2_result || [];
+
+    if (p1Results.length > 0 && p2Results.length > 0) {
+      const p1Res = p1Results[p1Results.length - 1];
+      const p2Res = p2Results[p2Results.length - 1];
       const newIsPlayer1 = gameState.player1 === userAddress;
 
       setProofFeedback({
@@ -250,11 +253,15 @@ export function PassGame({
         const p1Res = game.player1_result[game.player1_result.length - 1];
         const p2Res = game.player2_result[game.player2_result.length - 1];
 
+        // CRITICAL: Calculate fresh player status from the fetched game object
+        // using stale 'isPlayer1' here (derived from previous state) causes feedback flip-flop
+        const currentPlayerIsP1 = game.player1 === userAddress;
+
         // Se sou P1, meu feedback é o resultado do MEU palpite (validado pelo P2)
         // No contrato, result_p1 guarda o resultado do palpite do Player 1
         setProofFeedback({
-          myFeedback: isPlayer1 ? p1Res : p2Res,
-          opponentFeedback: isPlayer1 ? p2Res : p1Res
+          myFeedback: currentPlayerIsP1 ? p1Res : p2Res,
+          opponentFeedback: currentPlayerIsP1 ? p2Res : p1Res
         });
       }
 
