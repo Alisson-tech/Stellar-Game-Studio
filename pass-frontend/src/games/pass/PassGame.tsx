@@ -1053,7 +1053,7 @@ export function PassGame({
 
         const mySecret = getMySecret(userAddress);
         if (!mySecret) {
-          throw new Error('Segredo local não encontrado. Você precisa registrar seu segredo primeiro.');
+          throw new Error('Local secret not found. You need to register your secret first.');
         }
 
         const opponentGuess = isPlayer1 ? gameState?.player2_last_guess : gameState?.player1_last_guess;
@@ -1061,7 +1061,7 @@ export function PassGame({
         console.log(`[SubmitProof] Palpite do oponente: ${opponentGuess}`);
 
         if (opponentGuess === null || opponentGuess === undefined) {
-          throw new Error('Aguardando palpite do oponente para calcular prova.');
+          throw new Error('Waiting for opponent\'s guess to calculate proof.');
         }
 
         // STEP 2: Calcular estatísticas REAIS de prova usando SECRET LOCAL
@@ -1076,7 +1076,7 @@ export function PassGame({
 
         try {
           console.log('[SubmitProof] Gerando prova ZK no navegador...');
-          setSuccess('Gerando prova Zero-Knowledge... (isso pode levar alguns segundos)');
+          setSuccess('Generating Zero-Knowledge proof... (this may take a few seconds)');
 
           // NOTA: O hash registrado no contrato deve ser o Poseidon hash para isso funcionar.
           // Se o jogo começou com SHA-256 (versão antiga), a geração da prova vai falhar na asserção do hash.
@@ -1123,8 +1123,8 @@ export function PassGame({
             throw zkError;
           }
 
-          console.warn('[SubmitProof] Continuando com envio sem prova ZK (modo compatibilidade)...');
-          throw new Error(`Falha ao gerar prova ZK: ${zkError.message}`);
+          console.warn('[SubmitProof] Continuing with submission without ZK proof (compatibility mode)...');
+          throw new Error(`ZK proof generation failed: ${zkError.message}`);
           // Não bloqueamos o envio por enquanto, pois o contrato ainda não exige a prova
         }
 
@@ -1157,20 +1157,20 @@ export function PassGame({
           setPlayer2ProofSubmitted(true);
         }
 
-        setSuccess('✓ Prova enviada! Aguardando a prova do outro jogador...');
+        setSuccess('✓ Proof submitted! Waiting for the other player\'s proof...');
 
         await new Promise((resolve) => setTimeout(resolve, 1500));
         await loadGameState();
       } catch (err) {
         console.error('Submit proof error:', err);
 
-        const errorMsg = err instanceof Error ? err.message : 'Falha ao enviar prova';
+        const errorMsg = err instanceof Error ? err.message : 'Failed to submit proof';
 
         // Provide specific error feedback
         if (errorMsg.includes('BothPlayersNotGuessed') || errorMsg.includes('InvalidStatus')) {
-          setError('Ambos os jogadores devem fazer seus palpites antes de enviar prova');
+          setError('Both players must make their guesses before sending proof');
         } else if (errorMsg.includes('Transaction failed')) {
-          setError('Falha na transação. Verifique se ambos fizeram seus palpites.');
+          setError('Transaction failed. Check if both have made their guesses.');
         } else {
           setError(errorMsg);
         }
@@ -1188,7 +1188,7 @@ export function PassGame({
   const handleDarkUISubmit = async (value: string) => {
     const numValue = parseInt(value);
     if (isNaN(numValue)) {
-      setError('Digite um número válido');
+      setError('Enter a valid number');
       return;
     }
 
@@ -1213,7 +1213,7 @@ export function PassGame({
           saveMySecret(userAddress, numValue);
           console.log(`[Setup] Secret armazenado localmente para ${userAddress.slice(0, 8)}...`);
 
-          setSuccess(`Segredo registrado com sucesso! ✓`);
+          setSuccess(`Secret registered successfully! ✓`);
 
           // Load updated game state to check if both secrets are registered
           await loadGameState();
@@ -1223,7 +1223,7 @@ export function PassGame({
           console.log('[Guess] Submitting guess:', numValue, 'for player:', userAddress);
 
           await passService.submitGuess(sessionId, userAddress, numValue, signer);
-          setSuccess(`Palpite enviado com sucesso! ✓`);
+          setSuccess(`Guess submitted successfully! ✓`);
 
           // Load updated game state to check if both players have guessed
           await loadGameState();
@@ -1237,11 +1237,11 @@ export function PassGame({
 
         // Provide specific error feedback
         if (errorMsg.includes('already registered') || errorMsg.includes('already guessed')) {
-          setError('Você já completou esta ação neste jogo');
+          setError('You have already completed this action in this game');
         } else if (errorMsg.includes('not a player') || errorMsg.includes('NotPlayer')) {
-          setError('Você não é um jogador neste jogo');
+          setError('You are not a player in this game');
         } else if (errorMsg.includes('InvalidStatus')) {
-          setError('O jogo não está na fase correta para esta ação');
+          setError('The game is not in the correct phase for this action');
         } else {
           setError(errorMsg);
         }
@@ -1429,12 +1429,12 @@ export function PassGame({
             {/* Game Status Header */}
             <div className="pass-card mb-8 bg-blue-500/5 border-blue-500/30">
               <p className="text-xs text-blue-400 font-bold uppercase tracking-widest mb-2">
-                {gamePhase === 'setup' ? '🔐 Fase de Configuração' : '🎯 Fase de Palpites'}
+                {gamePhase === 'setup' ? '🔐 Setup Phase' : '🎯 Guessing Phase'}
               </p>
               <p className="text-sm text-gray-300">
                 {gamePhase === 'setup'
-                  ? 'Ambos os jogadores devem registrar seus segredos para iniciar o jogo'
-                  : 'Ambos os jogadores devem fazer seus palpites. Quem acertar o segredo do outro primeiro vence!'
+                  ? 'Both players must register their secrets to start the game'
+                  : 'Both players must make their guesses. Whoever guesses the other\'s secret first wins!'
                 }
               </p>
             </div>
@@ -1446,17 +1446,17 @@ export function PassGame({
                 <div className="mt-3 space-y-2">
                   {gamePhase === 'setup' ? (
                     gameState.player1_secret_hash !== null ? (
-                      <span className="text-[10px] text-green-500 font-bold">✓ SEGREDO REGISTRADO</span>
+                      <span className="text-[10px] text-green-500 font-bold">✓ SECRET REGISTERED</span>
                     ) : (
-                      <span className="text-[10px] text-yellow-500/70">⏳ AGUARDANDO...</span>
+                      <span className="text-[10px] text-yellow-500/70">⏳ WAITING...</span>
                     )
                   ) : (
                     gameState.player1_last_guess !== null ? (
                       <>
-                        <span className="text-[10px] text-green-500 font-bold">✓ PALPITE: {gameState.player1_last_guess}</span>
+                        <span className="text-[10px] text-green-500 font-bold">✓ GUESS: {gameState.player1_last_guess}</span>
                       </>
                     ) : (
-                      <span className="text-[10px] text-yellow-500/70">⏳ AGUARDANDO...</span>
+                      <span className="text-[10px] text-yellow-500/70">⏳ WAITING...</span>
                     )
                   )}
                 </div>
@@ -1467,17 +1467,17 @@ export function PassGame({
                 <div className="mt-3 space-y-2">
                   {gamePhase === 'setup' ? (
                     gameState.player2_secret_hash !== null ? (
-                      <span className="text-[10px] text-green-500 font-bold">✓ SEGREDO REGISTRADO</span>
+                      <span className="text-[10px] text-green-500 font-bold">✓ SECRET REGISTERED</span>
                     ) : (
-                      <span className="text-[10px] text-yellow-500/70">⏳ AGUARDANDO...</span>
+                      <span className="text-[10px] text-yellow-500/70">⏳ WAITING...</span>
                     )
                   ) : (
                     gameState.player2_last_guess !== null ? (
                       <>
-                        <span className="text-[10px] text-green-500 font-bold">✓ PALPITE: {gameState.player2_last_guess}</span>
+                        <span className="text-[10px] text-green-500 font-bold">✓ GUESS: {gameState.player2_last_guess}</span>
                       </>
                     ) : (
-                      <span className="text-[10px] text-yellow-500/70">⏳ AGUARDANDO...</span>
+                      <span className="text-[10px] text-yellow-500/70">⏳ WAITING...</span>
                     )
                   )}
                 </div>
@@ -1496,22 +1496,22 @@ export function PassGame({
               <div className="space-y-6">
                 <div className="pass-card bg-yellow-500/5 border-yellow-500/30">
                   <p className="text-xs text-yellow-400 font-bold uppercase tracking-widest mb-3">
-                    ✓ Ambos fizeram palpites
+                    ✓ Both have made guesses
                   </p>
                   <p className="text-sm text-gray-300">
-                    Clique em "ENVIAR PROVA" para verificar o resultado da rodada.
+                    Click "SEND PROOF" to verify the round result.
                   </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="pass-card">
-                    <p className="text-[10px] text-gray-500 uppercase font-bold mb-2">Seu Palpite</p>
+                    <p className="text-[10px] text-gray-500 uppercase font-bold mb-2">Your Guess</p>
                     <p className="text-2xl font-black text-blue-400">
                       {isPlayer1 ? gameState.player1_last_guess : gameState.player2_last_guess}
                     </p>
                   </div>
                   <div className="pass-card">
-                    <p className="text-[10px] text-gray-500 uppercase font-bold mb-2">Outro Jogador</p>
+                    <p className="text-[10px] text-gray-500 uppercase font-bold mb-2">Opponent</p>
                     <p className="text-2xl font-black text-purple-400">
                       {isPlayer1 ? gameState.player2_last_guess : gameState.player1_last_guess}
                     </p>
@@ -1523,12 +1523,12 @@ export function PassGame({
                   disabled={isBusy}
                   className="pass-button w-full !text-lg"
                 >
-                  {loading ? '⏳ ENVIANDO PROVA...' : '📤 ENVIAR PROVA'}
+                  {loading ? '⏳ SENDING PROOF...' : '📤 SEND PROOF'}
                 </button>
 
                 {lastProofResult && (
                   <div className="pass-card bg-blue-500/5 border-blue-500/30">
-                    <p className="text-xs text-blue-400 font-bold uppercase tracking-widest mb-2">Resultado da Rodada</p>
+                    <p className="text-xs text-blue-400 font-bold uppercase tracking-widest mb-2">Round Result</p>
                     <p className="text-sm text-gray-300">{lastProofResult}</p>
                   </div>
                 )}
@@ -1547,41 +1547,41 @@ export function PassGame({
                   {gameState.winner === userAddress ? '🏆' : '💔'}
                 </div>
                 <h2 className={`pass-win-title !text-5xl mb-2 ${gameState.winner === userAddress ? 'text-green-400' : 'text-gray-300'}`}>
-                  {gameState.winner === userAddress ? 'VITÓRIA!' : 'DERROTA'}
+                  {gameState.winner === userAddress ? 'VICTORY!' : 'DEFEAT'}
                 </h2>
                 <p className="font-mono text-xs text-gray-500 mb-6 break-all">
-                  Vencedor: {gameState.winner?.slice(0, 16)}...
+                  Winner: {gameState.winner?.slice(0, 16)}...
                 </p>
 
                 <div className="grid grid-cols-2 gap-4 pt-6 border-t border-white/10">
                   <div>
-                    <p className="text-[10px] text-gray-500 uppercase font-bold mb-2">Seu Palpite</p>
+                    <p className="text-[10px] text-gray-500 uppercase font-bold mb-2">Your Guess</p>
                     <p className="text-3xl font-black text-blue-400">
                       {isPlayer1 ? gameState.player1_last_guess : gameState.player2_last_guess}
                     </p>
                   </div>
                   <div>
-                    <p className="text-[10px] text-gray-500 uppercase font-bold mb-2">Resultado</p>
+                    <p className="text-[10px] text-gray-500 uppercase font-bold mb-2">Result</p>
                     <p className={`text-3xl font-black ${gameState.winner === userAddress ? 'text-green-400' : 'text-red-400'}`}>
-                      {gameState.winner === userAddress ? 'ACERTOU' : 'ERROU'}
+                      {gameState.winner === userAddress ? 'CORRECT' : 'WRONG'}
                     </p>
                   </div>
                 </div>
 
                 <div className="mt-6 pt-6 border-t border-white/10">
-                  <p className="text-[10px] text-gray-600 uppercase font-bold mb-2">Comparação</p>
+                  <p className="text-[10px] text-gray-600 uppercase font-bold mb-2">Comparison</p>
                   <div className="space-y-2 text-left">
                     <p className="text-xs text-gray-400">
-                      <span className="font-mono">Player 1 palpite: {gameState.player1_last_guess}</span>
+                      <span className="font-mono">Player 1 guess: {gameState.player1_last_guess}</span>
                       <span className="text-gray-600"> vs </span>
-                      <span className="font-mono">Player 2 segredo: {gameState.player2_secret_hash}</span>
-                      {gameState.player1_last_guess === gameState.player2_secret_hash && <span className="text-green-400 ml-2">✓ ACERTOU!</span>}
+                      <span className="font-mono">Player 2 secret: {gameState.player2_secret_hash}</span>
+                      {gameState.player1_last_guess === gameState.player2_secret_hash && <span className="text-green-400 ml-2">✓ CORRECT!</span>}
                     </p>
                     <p className="text-xs text-gray-400">
-                      <span className="font-mono">Player 2 palpite: {gameState.player2_last_guess}</span>
+                      <span className="font-mono">Player 2 guess: {gameState.player2_last_guess}</span>
                       <span className="text-gray-600"> vs </span>
-                      <span className="font-mono">Player 1 segredo: {gameState.player1_secret_hash}</span>
-                      {gameState.player2_last_guess === gameState.player1_secret_hash && <span className="text-green-400 ml-2">✓ ACERTOU!</span>}
+                      <span className="font-mono">Player 1 secret: {gameState.player1_secret_hash}</span>
+                      {gameState.player2_last_guess === gameState.player1_secret_hash && <span className="text-green-400 ml-2">✓ CORRECT!</span>}
                     </p>
                   </div>
                 </div>
@@ -1590,35 +1590,35 @@ export function PassGame({
               // Draw case (winner is None but status is Draw)
               <div className="pass-card text-center border-2 border-yellow-500/50 bg-yellow-500/5">
                 <div className="text-6xl mb-4">🤝</div>
-                <h2 className="pass-win-title !text-5xl mb-2 text-yellow-400">EMPATE!</h2>
-                <p className="text-sm text-gray-300 mb-6">Ambos os jogadores acertaram no mesmo turno.</p>
+                <h2 className="pass-win-title !text-5xl mb-2 text-yellow-400">DRAW!</h2>
+                <p className="text-sm text-gray-300 mb-6">Both players guessed correctly in the same turn.</p>
 
                 <div className="grid grid-cols-2 gap-4 pt-6 border-t border-white/10">
                   <div>
-                    <p className="text-[10px] text-gray-500 uppercase font-bold mb-2">Seu Palpite</p>
+                    <p className="text-[10px] text-gray-500 uppercase font-bold mb-2">Your Guess</p>
                     <p className="text-3xl font-black text-blue-400">
                       {isPlayer1 ? gameState.player1_last_guess : gameState.player2_last_guess}
                     </p>
                   </div>
                   <div>
-                    <p className="text-[10px] text-gray-500 uppercase font-bold mb-2">Resultado</p>
-                    <p className="text-3xl font-black text-yellow-400">ACERTOU</p>
+                    <p className="text-[10px] text-gray-500 uppercase font-bold mb-2">Result</p>
+                    <p className="text-3xl font-black text-yellow-400">CORRECT</p>
                   </div>
                 </div>
 
                 <div className="mt-6 pt-6 border-t border-white/10">
-                  <p className="text-[10px] text-gray-600 uppercase font-bold mb-2">Comparação</p>
+                  <p className="text-[10px] text-gray-600 uppercase font-bold mb-2">Comparison</p>
                   <div className="space-y-2 text-left">
                     <p className="text-xs text-gray-400">
-                      <span className="font-mono">Player 1 palpite: {gameState.player1_last_guess}</span>
+                      <span className="font-mono">Player 1 guess: {gameState.player1_last_guess}</span>
                       <span className="text-gray-600"> = </span>
-                      <span className="font-mono">Player 2 segredo: {gameState.player2_secret_hash}</span>
+                      <span className="font-mono">Player 2 secret: {gameState.player2_secret_hash}</span>
                       {gameState.player1_last_guess === gameState.player2_secret_hash && <span className="text-green-400 ml-2">✓</span>}
                     </p>
                     <p className="text-xs text-gray-400">
-                      <span className="font-mono">Player 2 palpite: {gameState.player2_last_guess}</span>
+                      <span className="font-mono">Player 2 guess: {gameState.player2_last_guess}</span>
                       <span className="text-gray-600"> = </span>
-                      <span className="font-mono">Player 1 segredo: {gameState.player1_secret_hash}</span>
+                      <span className="font-mono">Player 1 secret: {gameState.player1_secret_hash}</span>
                       {gameState.player2_last_guess === gameState.player1_secret_hash && <span className="text-green-400 ml-2">✓</span>}
                     </p>
                   </div>
@@ -1627,7 +1627,7 @@ export function PassGame({
             )}
 
             <button onClick={handleStartNewGame} className="pass-button w-full !text-lg">
-              🎮 VOLTAR AO LOBBY
+              🎮 BACK TO LOBBY
             </button>
           </div>
         )}

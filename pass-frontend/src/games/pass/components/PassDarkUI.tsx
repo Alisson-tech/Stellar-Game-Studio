@@ -32,25 +32,25 @@ export function PassDarkUI({ gamePhase, onSubmit, loading = false, winner = null
     const getGuidanceText = () => {
         switch (gamePhase) {
             case 'setup':
-                return 'Digite o segredo para o player dois';
+                return 'Enter the secret for player two';
             case 'guess':
-                return 'Digite seu palpite';
+                return 'Enter your guess';
             case 'win':
                 return '';
             default:
-                return 'Aguardando...';
+                return 'Waiting...';
         }
     };
 
     const getButtonText = () => {
-        if (loading) return 'Processando...';
+        if (loading) return 'Processing...';
         switch (gamePhase) {
             case 'setup':
-                return 'Registrar Segredo';
+                return 'Register Secret';
             case 'guess':
-                return 'Enviar Palpite';
+                return 'Send Guess';
             default:
-                return 'Confirmar';
+                return 'Confirm';
         }
     };
 
@@ -65,9 +65,9 @@ export function PassDarkUI({ gamePhase, onSubmit, loading = false, winner = null
                             <p className="pass-status-text">{getGuidanceText()}</p>
                             {gamePhase === 'guess' && feedback && (
                                 <div className="pass-feedback-badges">
-                                    <span className="pass-badge pass-badge-success">{feedback.acertos} Corretos</span>
-                                    <span className="pass-badge pass-badge-warning">{feedback.permutados} Permutados</span>
-                                    <span className="pass-badge pass-badge-error">{feedback.erros} Errados</span>
+                                    <span className="pass-badge pass-badge-success">{feedback.acertos} Correct</span>
+                                    <span className="pass-badge pass-badge-warning">{feedback.permutados} Misplaced</span>
+                                    <span className="pass-badge pass-badge-error">{feedback.erros} Wrong</span>
                                 </div>
                             )}
                         </div>
@@ -76,7 +76,7 @@ export function PassDarkUI({ gamePhase, onSubmit, loading = false, winner = null
                         <form onSubmit={handleSubmit}>
                             <div className="pass-input-container">
                                 <label htmlFor="pass-input" className="pass-input-label">
-                                    {gamePhase === 'setup' ? 'Seu Segredo' : 'Seu Palpite'}
+                                    {gamePhase === 'setup' ? 'Your Secret' : 'Your Guess'}
                                 </label>
                                 <input
                                     id="pass-input"
@@ -84,7 +84,7 @@ export function PassDarkUI({ gamePhase, onSubmit, loading = false, winner = null
                                     className="pass-input"
                                     value={inputValue}
                                     onChange={(e) => setInputValue(e.target.value)}
-                                    placeholder={gamePhase === 'setup' ? 'Digite um número secreto' : 'Digite seu palpite'}
+                                    placeholder={gamePhase === 'setup' ? 'Enter a secret number' : 'Enter your guess'}
                                     disabled={loading}
                                     autoComplete="off"
                                     autoFocus

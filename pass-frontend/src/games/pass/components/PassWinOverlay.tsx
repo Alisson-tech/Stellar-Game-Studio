@@ -26,7 +26,7 @@ export function PassWinOverlay({ winner, onClose, showCloseButton = false }: Pas
                         onClick={onClose}
                         style={{ marginTop: '2rem', maxWidth: '200px', margin: '2rem auto 0' }}
                     >
-                        Novo Jogo
+                        New Game
                     </button>
                 )}
             </div>

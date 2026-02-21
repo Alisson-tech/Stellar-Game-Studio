@@ -121,25 +121,25 @@ export function PassGameWithStateIndicator() {
 
                 <PassStateIndicator
                     currentState={gameState}
-                    message={gameState === 'verifying' ? 'Verificando na blockchain...' : undefined}
+                    message={gameState === 'verifying' ? 'Verifying on blockchain...' : undefined}
                 />
 
                 <div className="pass-card">
                     <form onSubmit={(e) => { e.preventDefault(); handleSubmit('test'); }}>
                         <div className="pass-input-container">
                             <label htmlFor="input" className="pass-input-label">
-                                Seu Input
+                                Your Input
                             </label>
                             <input
                                 id="input"
                                 type="text"
                                 className="pass-input"
-                                placeholder="Digite aqui"
+                                placeholder="Type here"
                                 disabled={loading}
                             />
                         </div>
                         <button type="submit" className="pass-button" disabled={loading}>
-                            {loading ? 'Processando...' : 'Enviar'}
+                            {loading ? 'Processing...' : 'Send'}
                         </button>
                     </form>
                 </div>

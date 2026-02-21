@@ -13,17 +13,17 @@ export function PassStateIndicator({ currentState, message }: PassStateIndicator
     const getStateLabel = () => {
         switch (currentState) {
             case 'waiting':
-                return 'Aguardando Jogadores';
+                return 'Waiting for Players';
             case 'setup':
-                return 'Configurando Segredos';
+                return 'Setting up Secrets';
             case 'playing':
-                return 'Em Jogo';
+                return 'In Game';
             case 'verifying':
-                return 'Verificando Blockchain';
+                return 'Verifying Blockchain';
             case 'complete':
-                return 'Jogo Finalizado';
+                return 'Game Finished';
             default:
-                return 'Carregando...';
+                return 'Loading...';
         }
     };
 
