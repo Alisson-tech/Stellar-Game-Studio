@@ -87,7 +87,7 @@ The `verify_zk_proof_internal` function translates the game state into the publi
 ---
 
 ## Automated Deployment
-
+n
 The project includes an automated deployment script at [scripts/deploy.ts](../../scripts/deploy.ts) that handles the entire testnet setup for the **pass** contract.
 
 ### Deployment Flow
