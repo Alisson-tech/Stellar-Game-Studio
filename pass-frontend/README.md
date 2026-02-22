@@ -81,6 +81,9 @@ The smart contract ([lib.rs](../contracts/pass/src/lib.rs)) uses the `verify_zk_
 2. Use the `UltraHonkVerifier` to verify the cryptographic proof.
 3. If verified, the game state is updated; otherwise, the submission is rejected or marked as fraud.
 
+
+![zk](./img-docs/zk_flow.jpg)
+
 ---
 
 ## Game Resolution & Outcomes
